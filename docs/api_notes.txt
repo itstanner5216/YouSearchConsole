@@ -1,0 +1,227 @@
+
+# Research API Overview
+
+## What Is the Research API?
+
+The Research API returns grounded, natural language answers to questions of varying complexity.
+It runs multiple searches, processes the results, cross-references sources, and synthesizes everything into a thorough, Markdown-formatted answer with inline citations.
+When you need a typed response, you can also get structured JSON by defining an `output_schema`.
+
+Ask a hard question, get a researched answer with sources.
+
+---
+
+## Endpoints
+
+Each API has its own endpoint. Every request sends your API key in the `X-API-Key` header.
+
+| API                  | Endpoint                                           | Guide                                     | API reference                                                                     |
+| -------------------- | -------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
+| Web Search API       | `POST https://ydc-index.io/v1/search` (also `GET`) | [Overview](/docs/guides/search)           | [/v1/search](/docs/api-reference/search/v1-search)                                |
+| Contents API         | `POST https://ydc-index.io/v1/contents`            | [Overview](/docs/guides/contents)         | [/v1/contents](/docs/api-reference/contents)                                      |
+| Answer API           | `POST https://api.you.com/v1/answer`               | [Overview](/docs/guides/answer)           | [/v1/answer](/docs/api-reference/answer/v1-answer)                                |
+| Research API         | `POST https://api.you.com/v1/research`             | [Overview](/docs/guides/research)         | [/v1/research](/docs/api-reference/research/v1-research)                          |
+| Finance Research API | `POST https://api.you.com/v1/finance_research`     | [Overview](/docs/guides/finance-research) | [/v1/finance\_research](/docs/api-reference/finance-research/v1-finance_research) |
+
+The Answer, Research, and Finance Research APIs run only on `api.you.com`. Sending one of those paths to `ydc-index.io` returns `403` with `{"message": "Missing Authentication Token"}`, even when the key is valid.
+
+---
+
+## How It's Different From Search
+
+The Web Search API and the Research API serve different purposes by delivering different outputs:
+
+|                | Web Search API                                                      | Research API                                                                                   |
+| -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Input**      | Query, several search parameters (count, language, extraction etc.) | Query, research effort, source controls, optional output schema                                |
+| **You get**    | Raw search results (URLs, snippets, metadata)                       | A natural language answer or structured JSON object with inline citations, plus search results |
+| **Processing** | Returns results as-is for you to process                            | Reads, reasons over, and synthesizes results for you                                           |
+| **Speed**      | Fast—single search round trip                                       | Varies—multiple searches and reasoning steps                                                   |
+| **Control**    | Full control over how results are used                              | Control depth, sources, recency, geography, and response shape                                 |
+| **Best for**   | RAG pipelines, building your own search UI, data gathering          | Answering questions of varying complexity using multiple sources                               |
+
+---
+
+## What You Get
+
+Every Research API response includes:
+
+* **`content`**: A Markdown-formatted answer by default, or a JSON object when you provide `output_schema`. Inline citations such as `[[1, 2]]` reference items in the `sources` array.
+* **`content_type`**: The format of the content field. `text` is returned for default Markdown responses. `object` is returned for structured output.
+* **`sources`**: The web pages the API read and cited in the answer—each with a URL, title, and relevant snippets.
+
+```json maxLines=25
+{
+  "output": {
+    "content": "## RISC-V vs ARM: Key Architectural Differences\n\nRISC-V and ARM are both reduced instruction set architectures, but they differ in licensing, extensibility, and ecosystem maturity [[1, 2]].\n\n### Licensing\nARM requires per-chip licensing fees, while RISC-V is open-source and royalty-free [[1, 3]]...",
+    "content_type": "text",
+    "sources": [
+      {
+        "url": "https://example.com/risc-v-vs-arm",
+        "title": "RISC-V vs ARM: A Technical Comparison",
+        "snippets": [
+          "RISC-V's open ISA allows custom extensions without licensing negotiations, making it attractive for specialized hardware."
+        ]
+      },
+      {
+        "url": "https://example.com/processor-architectures",
+        "title": "Modern Processor Architectures Explained",
+        "snippets": [
+          "ARM's mature ecosystem includes extensive tooling and vendor support built over three decades."
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Features
+
+### Research effort levels
+
+The `research_effort` parameter controls how much compute the API allocates to your question. Higher effort means more searches, deeper source reading, and more cross-referencing—at the cost of longer response times.
+
+| Tier         | Price per 1k | Latency                                 | Use case                                                       |
+| ------------ | ------------ | --------------------------------------- | -------------------------------------------------------------- |
+| `lite`       | \$12         | \< 10s                                  | Quick factual lookups, simple searches                         |
+| `standard`   | \$50         | \~10–30s                                | Balanced depth for most production use (default)               |
+| `deep`       | \$100        | \< 120s                                 | Complex multi-source research and synthesis                    |
+| `exhaustive` | \$450        | \< 300s                                 | Comprehensive analysis across dozens of sources                |
+| `frontier`   | \$1,200      | Background only. 30s–12000s (p50: 300s) | Long-running deep research tasks. Requires `background: true`. |
+
+A synchronous request holds the connection for the full run. Set your HTTP client timeout above the tier's upper bound—longer than 120s for `deep` and 300s for `exhaustive`—or send `background: true` and collect the result with [background requests](/docs/guides/research/background-requests).
+
+### Citation-backed answers
+
+Every claim in the response links back to a specific source via inline citations. Your users (or your system) can verify any statement by following the numbered references to the `sources` array.
+
+### Markdown output
+
+The `content` field is formatted in Markdown with headers, lists, and inline citations—ready to render in a UI or feed into downstream processing.
+
+### More capabilities
+
+| Feature                                                          | What it does                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------- |
+| [Source Control](/docs/guides/research/source-control)           | Constrain domains, freshness, and country                     |
+| [Structured Output](/docs/guides/research/structured-output)     | Return JSON that follows a schema instead of Markdown         |
+| [Background Requests](/docs/guides/research/background-requests) | Queue long-running research and poll or stream for the result |
+
+---
+
+## Parameters
+
+| Parameter         | Type    | Required | Description                                                                                                           |
+| ----------------- | ------- | -------- | --------------------------------------------------------------------------------------------------------------------- |
+| `input`           | string  | Yes      | The research question (max 40,000 characters)                                                                         |
+| `research_effort` | string  | No       | Depth of research: `lite`, `standard` (default), `deep`, `exhaustive`, `frontier`                                     |
+| `source_control`  | object  | No       | Beta. Controls which sources the research agent can use through domain, freshness, and country filters.               |
+| `output_schema`   | object  | No       | Beta. Requests structured JSON output that follows a supported JSON Schema subset. Not available with `lite`.         |
+| `background`      | boolean | No       | When `true`, runs the request asynchronously and returns a task handle. Poll or stream the task for the final result. |
+
+[View full API reference](/docs/api-reference/research/v1-research)
+
+---
+
+# Contents API Quickstart
+
+The Contents API extracts clean HTML or Markdown from URLs you already have. Pass a list of URLs and get back the page content for each—no parsing, no HTML noise, no browser automation.
+
+The samples below read `YDC_API_KEY`. See the [site Quickstart](/docs/quickstart) for the five-API tour and [API key management](/docs/administration/api-keys) for best practices.
+
+```python
+from youdotcom import You
+from youdotcom.models import ContentsFormats
+
+with You() as you:
+    pages = you.contents(
+        urls=["https://you.com/about"],
+        formats=[ContentsFormats.MARKDOWN],
+    )
+
+    for page in pages:
+        print(f"Title: {page.title}")
+        print(f"Content preview: {page.markdown[:300]}\n")
+```
+
+```typescript
+import { You } from "@youdotcom-oss/sdk";
+import { ContentsFormats } from "@youdotcom-oss/sdk/models";
+
+const you = new You({ apiKeyAuth: process.env.YDC_API_KEY });
+
+const pages = await you.contents({
+  urls: ["https://you.com/about"],
+  formats: [ContentsFormats.Markdown],
+});
+
+for (const page of pages) {
+  console.log(`Title: ${page.title}`);
+  console.log(`Preview: ${page.markdown?.slice(0, 300)}\n`);
+}
+```
+
+```curl
+curl -X POST https://ydc-index.io/v1/contents \
+  -H "X-API-Key: $YDC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": ["https://you.com/about"],
+    "formats": ["markdown"]
+  }'
+```
+
+# Answer API Quickstart
+
+The Answer API returns a synthesized natural-language answer with citations and the web results used to generate it. Send a `query`. The API retrieves web results and synthesizes an answer with inline citations.
+
+The samples below read `YDC_API_KEY`. See the [site Quickstart](/docs/quickstart) for the five-API tour and [API key management](/docs/administration/api-keys) for best practices.
+
+```python maxLines=0
+from youdotcom import You
+
+with You() as you:
+    response = you.answer(query="Top 5 EV-selling companies worldwide in 2025 so far")
+
+    print(response.answer)
+
+    print(f"\n--- {len(response.citations or [])} citations ---")
+    for i, citation in enumerate(response.citations or [], 1):
+        print(f"[{i}] {citation.source}")
+```
+
+```typescript
+const response = await fetch("https://api.you.com/v1/answer", {
+  method: "POST",
+  headers: {
+    "X-API-Key": process.env.YDC_API_KEY,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    query: "Top 5 EV-selling companies worldwide in 2025 so far",
+  }),
+});
+
+const data = await response.json();
+console.log(data.answer);
+
+console.log(`\n--- ${data.citations.length} citations ---`);
+data.citations.forEach((citation, i) => {
+  console.log(`[${i + 1}] ${citation.source}`);
+});
+```
+
+```curl
+curl -X POST https://api.you.com/v1/answer \
+  -H "X-API-Key: $YDC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Top 5 EV-selling companies worldwide in 2025 so far"
+  }'
+```
+
+Every citation is verified against the source text before the answer is returned. The `excerpts` are the verbatim passages the model used.
+
+Steer results with `freshness`, `country`, `language`, and domain filters. See [Search Controls](/docs/guides/answer/search-controls).

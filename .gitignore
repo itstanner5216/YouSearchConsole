@@ -1,0 +1,9 @@
+node_modules/
+.env
+data/state.json
+data/settings.json
+*.log
+.DS_Store
+PREVIEW_URL.txt
+coverage/
+data/output/
