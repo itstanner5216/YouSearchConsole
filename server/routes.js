@@ -7,6 +7,7 @@ const envKey = require('./envKey');
 const settings = require('./settings');
 const stateStore = require('./stateStore');
 const orchestrator = require('./orchestrator');
+const presence = require('./presence');
 const { getLogs, log, redact } = require('./logger');
 
 function createRouter() {
@@ -56,6 +57,7 @@ function createRouter() {
   });
 
   router.get('/events', (req, res) => {
+    presence.attach(req);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

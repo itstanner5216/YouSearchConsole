@@ -7,7 +7,7 @@ Local single-page app (Ubuntu/Debian GNOME) that drives the You.com **Research**
 ## Requirements
 
 - **Node.js 20+** (tested on Node 20)
-- Linux recommended (`xdg-open` for Open file / Open folder)
+- Linux recommended (`xdg-open` for Open folder)
 
 ## Quick start
 
@@ -23,6 +23,23 @@ The listening URL is also written to `PREVIEW_URL.txt`.
 ```bash
 npm test    # automated suite (mocks You.com; no real API key required)
 ```
+
+## Install as a desktop app
+
+```bash
+git clone https://github.com/itstanner5216/YouSearchConsole.git ~/.local/opt/YouSearchConsole
+cd ~/.local/opt/YouSearchConsole
+npm ci --omit=dev
+scripts/install-desktop.sh      # adds "You Research Console" to the app menu and `you-research` to ~/.local/bin
+```
+
+Launching opens the console in its own window (Chrome, Chromium, Brave or Edge in app mode; otherwise the default browser). The launcher starts the server if it isn't already running and reuses it if it is. The server shuts itself down about 10 seconds after the last window closes, so a reload doesn't stop it. Installed launches start with no sample report.
+
+- `YDC_PORT`: port to use (default 3847)
+- `YDC_BROWSER`: browser command to use for the window
+- Server log: `~/.local/state/you-research-console/server.log`
+- Update: `git pull && npm ci --omit=dev`. Your key and data are untracked, so pulling doesn't touch them.
+- Remove from the menu: `scripts/install-desktop.sh --uninstall`
 
 ## Configuration
 

@@ -13,6 +13,9 @@ const stateStore = require('./stateStore');
 const settings = require('./settings');
 const { createRouter } = require('./routes');
 const orchestrator = require('./orchestrator');
+const presence = require('./presence');
+
+const APP_ID = 'you-research-console';
 
 const PORT = Number(process.env.PORT) || 3847;
 
@@ -20,13 +23,15 @@ function seedDemoIfEmpty() {
   const raw = stateStore.getRawState();
   if (raw.threads && raw.threads.length > 0) return;
 
-  // Ensure a default output dir for demo
+  // Ensure a default output dir
   const demoOut = path.join(ROOT, 'data', 'output');
   if (!fs.existsSync(demoOut)) fs.mkdirSync(demoOut, { recursive: true });
   const s = settings.load();
   if (!s.outputDir) {
     settings.update({ outputDir: demoOut });
   }
+  // Installed launches start clean; the sample report is for development screenshots.
+  if (process.env.YDC_DEMO === '0') return;
 
   const sampleMd = `# RISC-V vs ARM: Key Architectural Differences
 
@@ -100,6 +105,7 @@ function main() {
 
   const app = express();
   app.use(express.json({ limit: '4mb' }));
+  app.get('/api/health', (_req, res) => res.json({ app: APP_ID, pid: process.pid, exitWhenClosed: presence.enabled }));
   app.use(express.static(path.join(ROOT, 'public')));
   app.use('/api', createRouter());
 
@@ -121,6 +127,10 @@ function main() {
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
   }
+  presence.start(() => {
+    log('info', 'last window closed — exiting', { operation: 'shutdown' });
+    shutdown();
+  });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

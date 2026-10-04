@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Open the You.com Research Console in its own window.
+# Starts the local server if it isn't already running; the server exits by itself
+# a few seconds after the last window closes.
+#
+#   YDC_PORT     port to use (default 3847)
+#   YDC_BROWSER  browser command to open the window with (default: first Chromium-family browser found)
+set -euo pipefail
+
+APP_ID="you-research-console"
+APP_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+PORT="${YDC_PORT:-3847}"
+URL="http://127.0.0.1:$PORT"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/$APP_ID"
+LOG="$STATE_DIR/server.log"
+mkdir -p "$STATE_DIR"
+
+fail() {
+  notify-send -a "You Research Console" "You Research Console" "$1" 2>/dev/null || true
+  echo "you-research: $1" >&2
+  exit 1
+}
+
+# Launchers started from the app menu don't load the shell profile, so nvm/fnm/volta
+# installs aren't on PATH. Look for Node 20+ in the usual places.
+find_node() {
+  local c v
+  for c in "$(command -v node 2>/dev/null || true)" \
+    $(ls -1d "$HOME"/.nvm/versions/node/*/bin/node 2>/dev/null | sort -rV) \
+    "$HOME/.volta/bin/node" \
+    $(ls -1d "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node 2>/dev/null | sort -rV) \
+    /usr/local/bin/node /usr/bin/node; do
+    [ -n "$c" ] && [ -x "$c" ] || continue
+    v="$("$c" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+    if [ "$v" -ge 20 ]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+is_ours() { curl -fsS --max-time 1 "$URL/api/health" 2>/dev/null | grep -q "\"app\":\"$APP_ID\""; }
+
+start_server() {
+  if curl -s --max-time 1 -o /dev/null "$URL"; then
+    fail "Port $PORT is in use by another program. Set YDC_PORT to a free port."
+  fi
+  local node
+  node="$(find_node)" || fail "Node.js 20 or newer was not found."
+  [ -d "$APP_DIR/node_modules" ] || fail "Dependencies are missing. Run: cd '$APP_DIR' && npm ci --omit=dev"
+  # Keep the log from growing without bound.
+  if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG")" -gt 1048576 ]; then mv -f "$LOG" "$LOG.1"; fi
+  (cd "$APP_DIR" && PORT="$PORT" YDC_EXIT_WHEN_CLOSED=1 YDC_DEMO=0 \
+    setsid "$node" server/index.js >>"$LOG" 2>&1 </dev/null &)
+  for _ in $(seq 75); do
+    is_ours && return 0
+    sleep 0.2
+  done
+  fail "The server didn't start. Details: $LOG"
+}
+
+open_window() {
+  local b
+  for b in ${YDC_BROWSER:-} google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
+    command -v "$b" >/dev/null 2>&1 || continue
+    # A dedicated profile gives the app its own window, dock icon and process.
+    setsid "$b" --app="$URL" --class="$APP_ID" --user-data-dir="$STATE_DIR/browser" \
+      --no-first-run --no-default-browser-check >/dev/null 2>&1 </dev/null &
+    return 0
+  done
+  xdg-open "$URL" >/dev/null 2>&1 &
+}
+
+is_ours || start_server
+open_window
