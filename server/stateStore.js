@@ -249,9 +249,8 @@ function statusDot(status) {
 function setActive(threadId) {
   const t = getThread(threadId);
   if (!t) throw Object.assign(new Error('Thread not found'), { status: 404 });
+  // Viewing a thread is not using it: the sidebar order changes only on submit.
   state.activeThreadId = threadId;
-  touchLru(threadId);
-  t.updatedAt = new Date().toISOString();
   touch();
   return t;
 }
@@ -263,8 +262,6 @@ function updateThread(threadId, patch) {
   if (patch.mode !== undefined) t.mode = normalizeMode(patch.mode);
   if (patch.draft !== undefined) t.draft = String(patch.draft);
   if (patch.urlsDraft !== undefined) t.urlsDraft = String(patch.urlsDraft);
-  t.updatedAt = new Date().toISOString();
-  touchLru(threadId);
   touch();
   return t;
 }
@@ -333,8 +330,6 @@ function updateRequest(requestId, patch) {
   const found = getRequest(requestId);
   if (!found) throw Object.assign(new Error('Request not found'), { status: 404 });
   Object.assign(found.request, patch, { updatedAt: new Date().toISOString() });
-  found.thread.updatedAt = new Date().toISOString();
-  touchLru(found.thread.id);
   touch();
   return found.request;
 }

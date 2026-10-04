@@ -107,7 +107,7 @@ function main() {
     res.sendFile(path.join(ROOT, 'public', 'index.html'));
   });
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${PORT}`;
     fs.writeFileSync(path.join(ROOT, 'PREVIEW_URL.txt'), url + '\n', 'utf8');
     log('info', `server listening on ${url}`, { operation: 'startup', outcome: 'ok' });

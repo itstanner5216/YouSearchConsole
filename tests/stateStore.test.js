@@ -36,6 +36,18 @@ describe('stateStore threads + restart', () => {
     assert.equal(stateStore.getRawState().threads.length, 21);
   });
 
+  it('viewing or editing a thread does not reorder the sidebar; submitting does', () => {
+    const a = stateStore.createThread('frontier');
+    const b = stateStore.createThread('frontier');
+    const order = () => stateStore.listSidebarThreads().map((t) => t.id);
+    assert.deepEqual(order(), [b.id, a.id]);
+    stateStore.setActive(a.id);
+    stateStore.updateThread(a.id, { draft: 'typing', title: 'Renamed', mode: 'answers' });
+    assert.deepEqual(order(), [b.id, a.id]);
+    stateStore.createRequest(a.id, { mode: 'answers', input: 'q', status: 'SUBMITTING' });
+    assert.deepEqual(order(), [a.id, b.id]);
+  });
+
   it('drop from sidebar leaves thread data intact', () => {
     const t = stateStore.createThread('answers');
     stateStore.createRequest(t.id, { mode: 'answers', input: 'hi', status: 'DRAFT' });

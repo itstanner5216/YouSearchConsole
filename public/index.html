@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
   <title>You.com Research Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=2" />
+  <link rel="stylesheet" href="/styles.css?v=11" />
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" defer></script>
-  <script src="/app.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" defer></script>
+  <script src="/app.js?v=11" defer></script>
 </head>
 <body>
   <div id="app" class="app">
@@ -20,85 +22,84 @@
         <span class="title-text">YOU.COM RESEARCH CONSOLE</span>
         <span class="title-bracket">─┐</span>
       </div>
-      <button type="button" id="btn-new-thread" class="btn btn-block" title="New Thread">+ NEW THREAD</button>
-      <div class="section-header" data-title="THREADS"><span>──[ THREADS ]──────────</span></div>
-      <ul id="thread-list" class="thread-list" role="listbox" aria-label="Recent threads"></ul>
+      <button type="button" id="btn-new-thread" class="btn btn-block">+ New thread</button>
+      <div class="rule"><span>THREADS</span></div>
+      <ul id="thread-list" class="thread-list" aria-label="Recent threads"></ul>
       <div class="sidebar-footer">
-        <button type="button" id="btn-settings" class="btn btn-block" title="Settings">⚙ SETTINGS</button>
+        <button type="button" id="btn-settings" class="btn btn-block">⚙ Settings</button>
       </div>
+      <div id="sidebar-resizer" class="resizer resizer-x" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
     </aside>
+    <div id="scrim" class="scrim" hidden></div>
 
     <!-- Workspace -->
     <main class="workspace" id="workspace">
-      <header class="thread-header" id="thread-header">
-        <button type="button" id="btn-sidebar-toggle" class="icon-btn sidebar-toggle" aria-label="Toggle sidebar" title="Threads">☰</button>
-        <h1 id="active-title" class="active-title" contenteditable="true" spellcheck="false" title="Edit title">New Thread</h1>
+      <header class="thread-header">
+        <button type="button" id="btn-sidebar-toggle" class="btn btn-sm panel-toggle" aria-controls="sidebar" aria-expanded="true" title="Hide the thread list"><span class="pt-icon" aria-hidden="true">☰</span><span id="sidebar-toggle-text">Hide threads</span></button>
+        <h1 id="active-title" class="active-title" contenteditable="true" spellcheck="false" title="Click to rename">New Thread</h1>
         <span id="header-mode" class="mode-tag">FRONTIER</span>
         <span id="header-status" class="status-word" aria-live="polite">DRAFT</span>
       </header>
 
-      <div class="section-header" data-title="RESEARCH STATUS"><span>──[ RESEARCH STATUS ]──────────</span></div>
-
-      <section id="timeline" class="timeline" aria-label="Request timeline">
-        <div class="empty-state" id="empty-state">
-          <div class="readout">
-            <div class="ro-row"><span class="ro-label">STATUS</span><span class="ro-value">NO RESULT YET</span></div>
-            <div class="ro-row"><span class="ro-label">HINT</span><span class="ro-value subtle">Choose a mode, enter a prompt, press Submit</span></div>
+      <!-- Request readout: one or two slim lines -->
+      <section id="meta" class="meta hidden" aria-label="Request error">
+        <div id="meta-error" class="meta-error hidden" role="alert">
+          <div class="err-title" id="err-title"></div>
+          <div class="err-msg" id="err-msg"></div>
+          <div class="err-detail" id="err-detail"></div>
+          <div class="err-actions">
+            <button type="button" class="btn btn-sm hidden" id="btn-err-settings">Open settings</button>
           </div>
         </div>
       </section>
 
-      <div class="section-header" data-title="REPORT"><span>──[ REPORT ]──────────</span></div>
-
-      <section class="reader" id="reader" aria-label="Report reader">
-        <div class="reader-toolbar sticky">
-          <div class="tabs" role="tablist">
-            <button type="button" class="tab active" data-tab="rendered" role="tab" aria-selected="true">Rendered</button>
-            <button type="button" class="tab" data-tab="raw" role="tab" aria-selected="false">Raw Markdown</button>
-          </div>
-          <div class="toolbar-actions">
-            <button type="button" class="btn btn-sm" id="btn-copy" title="Copy Markdown">Copy</button>
-            <button type="button" class="btn btn-sm" id="btn-open-file" title="Open file">Open file</button>
-            <button type="button" class="btn btn-sm" id="btn-open-folder" title="Open folder">Open folder</button>
-            <button type="button" class="btn btn-sm hidden" id="btn-save-again" title="Rewrite with new timestamp">Save Again</button>
-            <button type="button" class="btn btn-sm" id="btn-width" title="Toggle width">Wide</button>
-            <button type="button" class="btn btn-sm" id="btn-top" title="Scroll to top">Top</button>
-          </div>
+      <div class="rule rule-report">
+        <span>REPORT</span>
+        <div class="toolbar-actions" id="report-actions">
+          <button type="button" class="btn btn-sm hidden" id="btn-stop">Stop polling</button>
+          <button type="button" class="btn btn-sm hidden" id="btn-resume">Resume tracking</button>
+          <button type="button" class="btn btn-sm" id="btn-copy" title="Copy the report as Markdown">Copy Markdown</button>
+          <button type="button" class="btn btn-sm" id="btn-open-folder" title="Open the folder holding the file">Open folder</button>
+          <button type="button" class="btn btn-sm btn-attn hidden" id="btn-save-again" title="Write the report to disk again">Save again</button>
+          <button type="button" class="btn btn-sm" id="btn-width" aria-pressed="false" title="Use the full width">Wide</button>
         </div>
-        <div id="reader-rendered" class="reader-body reading-width" tabindex="0"></div>
-        <div id="reader-raw" class="reader-body raw hidden" tabindex="0"></div>
-        <p id="raw-caption" class="raw-caption hidden">Exact saved file content · whitespace preserved</p>
+      </div>
+
+      <section class="reader" id="reader" aria-label="Report" tabindex="0">
+        <div id="reader-body" class="reader-body reading-width"></div>
       </section>
 
       <!-- Composer -->
-      <footer class="composer" id="composer">
-        <div class="mode-seg" role="radiogroup" aria-label="Mode">
-          <button type="button" class="seg active" data-mode="frontier" role="radio" aria-checked="true">Frontier <span class="bg-tag">BACKGROUND</span></button>
-          <button type="button" class="seg" data-mode="exhaustive" role="radio" aria-checked="false">Exhaustive <span class="bg-tag">BACKGROUND</span></button>
-          <button type="button" class="seg seg-contents" data-mode="contents" role="radio" aria-checked="false">Contents</button>
-          <button type="button" class="seg" data-mode="answers" role="radio" aria-checked="false">Answers</button>
-        </div>
-        <div id="urls-wrap" class="urls-wrap hidden">
-          <label for="urls-input" class="sr-only">URLs (one per line)</label>
-          <textarea id="urls-input" class="urls-input" rows="2" placeholder="https://example.com/page&#10;(one URL per line)"></textarea>
-        </div>
-        <div class="composer-row">
-          <label for="prompt" class="sr-only">Prompt</label>
-          <textarea id="prompt" class="prompt" rows="2" placeholder="Ask a research question…"></textarea>
-          <div class="composer-actions">
-            <button type="button" id="btn-submit" class="btn btn-submit">Submit</button>
-            <span class="hint">Enter · Shift+Enter · Esc</span>
+      <footer class="composer-wrap">
+        <div class="composer" id="composer">
+          <div class="composer-row">
+            <label for="prompt" class="sr-only">Search query</label>
+            <textarea id="prompt" class="prompt" rows="1" placeholder="Search query"></textarea>
+            <div class="mode-picker">
+              <button type="button" id="mode-btn" class="mode-btn" aria-haspopup="true" aria-expanded="false" aria-controls="mode-menu" title="Choose mode"><span id="mode-btn-text">Frontier</span><span class="mode-chev" aria-hidden="true">▾</span></button>
+              <div id="mode-menu" class="mode-menu" role="radiogroup" aria-label="Mode" hidden>
+                <button type="button" class="mode" data-mode="frontier" role="radio" aria-checked="true"><span class="mode-name">Frontier</span><span class="mode-desc">Deep research · runs in the background · billed on submit</span></button>
+                <button type="button" class="mode" data-mode="exhaustive" role="radio" aria-checked="false"><span class="mode-name">Exhaustive</span><span class="mode-desc">Most thorough · runs in the background · billed on submit</span></button>
+                <button type="button" class="mode mode-contents" data-mode="contents" role="radio" aria-checked="false"><span class="mode-name">Contents</span><span class="mode-desc">Fetches each page as Markdown</span></button>
+                <button type="button" class="mode" data-mode="answers" role="radio" aria-checked="false"><span class="mode-name">Answers</span><span class="mode-desc">Quick synthesized answer · 400 characters max</span></button>
+              </div>
+            </div>
+            <button type="button" id="btn-submit" class="btn-send" aria-label="Submit" title="Submit (Enter) · new line (Shift+Enter)"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+          <div class="composer-note">
+            <span id="composer-helper" class="composer-helper"></span>
+            <span id="composer-error" class="composer-error" role="alert"></span>
           </div>
         </div>
-        <p id="composer-helper" class="composer-helper">Frontier · background research · paid on Submit</p>
       </footer>
     </main>
 
     <!-- Log drawer -->
-    <aside id="log-drawer" class="log-drawer collapsed" aria-label="Log drawer">
-      <button type="button" id="btn-log-toggle" class="log-toggle" aria-expanded="false">
-        <span>──[ LOG ]──────────</span>
-        <span id="log-count" class="log-count">0</span>
+    <aside id="log-drawer" class="log-drawer" aria-label="Log">
+      <div id="log-resizer" class="resizer resizer-y" role="separator" aria-orientation="horizontal" aria-label="Resize log" tabindex="0" hidden></div>
+      <button type="button" id="btn-log-toggle" class="log-toggle" aria-expanded="false" aria-controls="log-body">
+        <span class="rule rule-inline"><span>LOG</span></span>
+        <span class="log-toggle-btn"><span id="log-action">Show log</span><span id="log-count" class="log-count">0 entries</span><span class="chev" aria-hidden="true">▴</span></span>
       </button>
       <div id="log-body" class="log-body" hidden>
         <div class="log-filters">
@@ -107,59 +108,70 @@
           <button type="button" class="btn btn-sm log-filter" data-sev="success">OK</button>
           <button type="button" class="btn btn-sm log-filter" data-sev="api">API</button>
         </div>
-        <div id="log-rows" class="log-rows" role="log" aria-live="polite"></div>
+        <div id="log-rows" class="log-rows" role="log" aria-live="off"></div>
       </div>
     </aside>
   </div>
 
-  <!-- Settings modal -->
-  <dialog id="settings-dialog" class="dialog">
-    <form method="dialog" id="settings-form" class="settings-form">
-      <div class="dialog-title">┌─ SETTINGS ─┐</div>
+  <!-- Settings -->
+  <dialog id="settings-dialog" class="dialog" aria-labelledby="settings-title">
+    <div class="dialog-head">
+      <h2 id="settings-title" class="dialog-title">┌─ SETTINGS ─┐</h2>
+      <button type="button" class="icon-btn" id="btn-settings-close" aria-label="Close settings" title="Close (Esc)">✕</button>
+    </div>
+    <div class="settings-body">
+      <section class="setting">
+        <div class="setting-head">
+          <div class="rule"><span>API KEY</span></div>
+          <span class="setting-status" id="key-status">—</span>
+        </div>
+        <p class="setting-help">Stored in the app's local .env file. Paste a new key to replace the current one.</p>
+        <div class="field-row">
+          <input type="password" id="key-input" class="field" placeholder="Paste API key" autocomplete="off" aria-label="API key" />
+          <button type="button" id="btn-key-save" class="btn">Save key</button>
+        </div>
+        <div class="field-row field-row-end">
+          <button type="button" id="btn-key-delete" class="btn btn-danger">Delete key…</button>
+        </div>
+        <p class="setting-msg" id="key-msg" role="status"></p>
+      </section>
 
-      <div class="section-header"><span>──[ API KEY ]──────────</span></div>
-      <div class="readout">
-        <div class="ro-row"><span class="ro-label">STATUS</span><span class="ro-value" id="key-status">NO KEY</span></div>
-      </div>
-      <div class="field-row">
-        <input type="password" id="key-input" class="field" placeholder="Paste API key" autocomplete="off" aria-label="API key" />
-        <button type="button" id="btn-key-save" class="btn">Save / Replace</button>
-        <button type="button" id="btn-key-delete" class="btn btn-danger">Delete</button>
-      </div>
+      <section class="setting">
+        <div class="setting-head">
+          <div class="rule"><span>OUTPUT FOLDER</span></div>
+          <span class="setting-status" id="dir-status">—</span>
+        </div>
+        <p class="setting-help">Reports are saved here as Markdown files.</p>
+        <div class="field-row">
+          <input type="text" id="dir-input" class="field" placeholder="/absolute/path/to/folder" aria-label="Output folder" spellcheck="false" />
+          <button type="button" id="btn-dir-save" class="btn">Save</button>
+          <button type="button" id="btn-dir-open" class="btn">Open</button>
+        </div>
+        <p class="setting-msg" id="dir-msg" role="status"></p>
+      </section>
 
-      <div class="section-header"><span>──[ OUTPUT DIRECTORY ]──────────</span></div>
-      <div class="readout">
-        <div class="ro-row"><span class="ro-label">STATUS</span><span class="ro-value" id="dir-status">—</span></div>
-        <div class="ro-row"><span class="ro-label">PATH</span><span class="ro-value path" id="dir-path">—</span></div>
-      </div>
-      <div class="field-row">
-        <input type="text" id="dir-input" class="field" placeholder="/absolute/path/to/output" aria-label="Output directory" />
-        <button type="button" id="btn-dir-save" class="btn">Save</button>
-        <button type="button" id="btn-dir-open" class="btn">Open Folder</button>
-      </div>
-
-      <div class="section-header"><span>──[ NOTIFICATIONS ]──────────</span></div>
-      <div class="readout">
-        <div class="ro-row"><span class="ro-label">PERMISSION</span><span class="ro-value" id="notif-perm">—</span></div>
-      </div>
-      <div class="field-row">
-        <button type="button" id="btn-notif-request" class="btn">Request Permission</button>
-        <button type="button" id="btn-notif-test" class="btn">Send Test</button>
-      </div>
-
-      <div class="dialog-actions">
-        <button type="submit" class="btn" value="close">Close</button>
-      </div>
-    </form>
+      <section class="setting">
+        <div class="setting-head">
+          <div class="rule"><span>NOTIFICATIONS</span></div>
+          <span class="setting-status" id="notif-perm">—</span>
+        </div>
+        <p class="setting-help">A desktop notification when a background research job finishes.</p>
+        <div class="field-row">
+          <button type="button" id="btn-notif-request" class="btn">Allow notifications</button>
+          <button type="button" id="btn-notif-test" class="btn">Send test</button>
+        </div>
+        <p class="setting-msg" id="notif-msg" role="status"></p>
+      </section>
+    </div>
   </dialog>
 
   <!-- Confirm delete key -->
-  <dialog id="confirm-dialog" class="dialog">
+  <dialog id="confirm-dialog" class="dialog dialog-sm">
     <form method="dialog" class="confirm-form">
-      <p id="confirm-msg">Delete the API key from .env?</p>
+      <p id="confirm-msg">Delete the API key from the local .env file? Requests will fail until a new key is saved.</p>
       <div class="dialog-actions">
         <button type="submit" class="btn" value="cancel">Cancel</button>
-        <button type="submit" class="btn btn-danger" value="confirm">Delete</button>
+        <button type="submit" class="btn btn-danger" value="confirm">Delete key</button>
       </div>
     </form>
   </dialog>
