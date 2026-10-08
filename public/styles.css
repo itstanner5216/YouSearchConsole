@@ -13,7 +13,12 @@
   --teal: #98D9C2;
   --blue: #437FBF;
   --link: #6FA3DA;
-  --sidebar-w: 260px;
+  --sidebar-w: 300px;
+  --fs-tiny: 13px;   /* was 11px */
+  --fs-small: 14px;  /* was 12px */
+  --fs-ui: 15px;     /* was 13px */
+  --fs-input: 16px;  /* was 14px */
+  --fs-read: 17px;   /* was 15px */
   --log-h: 200px;
   --radius: 4px;
   --font-ui: Ubuntu, system-ui, sans-serif;
@@ -29,7 +34,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: var(--fs-ui);
   line-height: 1.4;
 }
 
@@ -65,8 +70,8 @@ html, body {
   flex-direction: column;
   border-right: 1px solid var(--divider);
   background: var(--bg);
-  padding: 12px;
-  gap: 8px;
+  padding: 14px;
+  gap: 10px;
   min-width: 0;
   overflow: hidden;
   z-index: 20;
@@ -103,8 +108,8 @@ html, body {
   gap: 4px;
   color: var(--red);
   font-weight: 700;
-  font-size: 12px;
-  padding: 8px 4px;
+  font-size: var(--fs-small);
+  padding: 10px 4px;
   white-space: nowrap;
   overflow: hidden;
 }
@@ -117,7 +122,7 @@ html, body {
   gap: 6px;
   color: var(--red);
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs-small);
   text-transform: uppercase;
   white-space: nowrap;
   user-select: none;
@@ -141,7 +146,7 @@ html, body {
 /* ── Buttons ── */
 .btn {
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--fs-small);
   font-weight: 500;
   color: var(--text);
   background: transparent;
@@ -159,8 +164,8 @@ html, body {
   outline: 2px solid var(--red);
   outline-offset: 2px;
 }
-.btn-block { width: 100%; text-align: left; }
-.btn-sm { padding: 3px 8px; font-size: 12px; }
+.btn-block { width: 100%; text-align: left; padding: 9px 12px; }
+.btn-sm { padding: 4px 10px; font-size: var(--fs-small); }
 .btn-attn { border-color: var(--red); }
 .btn-danger { border-color: var(--maroon); color: var(--subtle); }
 .btn-danger:hover:not(:disabled) { border-color: var(--error-text); color: var(--error-text); }
@@ -176,7 +181,7 @@ html, body {
   border-radius: var(--radius);
   width: 28px; height: 28px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-input);
   transition: border-color var(--trans), color var(--trans);
 }
 .icon-btn:hover { border-color: var(--red); color: var(--text); }
@@ -194,14 +199,15 @@ html, body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
 .thread-item {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 10px;
   align-items: start;
-  padding: 7px 6px 7px 8px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid #1c1c1c;
   border-radius: var(--radius);
   cursor: pointer;
   position: relative;
@@ -218,7 +224,7 @@ html, body {
 .dot {
   width: 7px; height: 7px;
   border-radius: 50%;
-  margin-top: 5px;
+  margin-top: 7px;
   background: #666;
 }
 .dot.teal { background: var(--teal); }
@@ -228,14 +234,14 @@ html, body {
 .thread-meta { min-width: 0; }
 .thread-title {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-ui);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .thread-sub {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--muted);
   display: flex;
   gap: 8px;
@@ -246,7 +252,7 @@ html, body {
   border: none;
   color: var(--label);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-input);
   line-height: 1;
   padding: 2px 4px;
   border-radius: var(--radius);
@@ -259,14 +265,14 @@ html, body {
 .thread-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  min-height: 48px;
+  gap: 14px;
+  padding: 14px 16px;
+  min-height: 60px;
   border-bottom: 1px solid var(--divider);
 }
 .active-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   flex: 1;
   min-width: 0;
@@ -281,7 +287,7 @@ html, body {
 .active-title:focus { border-bottom-color: var(--red); text-overflow: clip; }
 .mode-tag {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--red);
   border: 1px solid var(--divider);
   padding: 1px 6px;
@@ -291,7 +297,7 @@ html, body {
 .mode-tag.contents { color: var(--blue); }
 .status-word {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
   font-weight: 700;
   color: var(--label);
   flex-shrink: 0;
@@ -321,7 +327,7 @@ html, body {
 .meta {
   padding: 10px 16px 4px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -333,9 +339,9 @@ html, body {
   border-left: 2px solid var(--maroon);
   font-family: var(--font-ui);
 }
-.err-title { color: var(--error-text); font-weight: 700; font-size: 13px; }
-.err-msg { color: var(--text); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
-.err-detail { color: var(--muted); font-family: var(--font-mono); font-size: 12px; margin-top: 2px; }
+.err-title { color: var(--error-text); font-weight: 700; font-size: var(--fs-ui); }
+.err-msg { color: var(--text); font-size: var(--fs-ui); margin-top: 2px; overflow-wrap: anywhere; }
+.err-detail { color: var(--muted); font-family: var(--font-mono); font-size: var(--fs-small); margin-top: 2px; }
 .err-actions { margin-top: 6px; display: flex; gap: 6px; }
 .err-actions:not(:has(.btn:not(.hidden))) { display: none; }
 
@@ -358,9 +364,9 @@ html, body {
   padding: 8px 0 32px;
 }
 /* The report column and the composer share one width and one center line. */
-.app { --col-w: 46rem; }
-.app.reader-wide { --col-w: 72rem; }
-.reader-body { max-width: var(--col-w); }
+.app { --col-w: 56rem; }
+.app.reader-wide { --col-w: 84rem; }
+.reader-body { max-width: var(--col-w); font-size: var(--fs-read); }
 
 .reader-body h1, .reader-body h2, .reader-body h3, .reader-body h4 {
   font-weight: 700;
@@ -376,7 +382,7 @@ html, body {
 .reader-body h2 { font-size: 1.25em; }
 .reader-body h3 { font-size: 1.1em; }
 .reader-body p, .reader-body li {
-  font-size: 15px;
+  font-size: 1em;
   line-height: 1.6;
   color: var(--subtle);
 }
@@ -395,7 +401,7 @@ html, body {
   padding: 12px;
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-ui);
 }
 .reader-body code { font-family: var(--font-mono); font-size: 0.92em; }
 .reader-body :not(pre) > code { background: var(--surface-2); padding: 1px 4px; border-radius: 2px; }
@@ -410,7 +416,7 @@ html, body {
   border-bottom: 1px solid var(--divider);
   padding: 6px 12px 6px 0;
   text-align: left;
-  font-size: 14px;
+  font-size: var(--fs-input);
   color: var(--subtle);
 }
 .reader-body th { color: var(--label); font-weight: 500; border-bottom-color: var(--red); }
@@ -422,27 +428,29 @@ html, body {
 .turn + .turn { margin-top: 48px; }
 .turn-query {
   width: fit-content;
-  max-width: min(85%, 38rem);
-  margin: 0.4em 0 24px auto;
-  padding: 10px 14px;
+  max-width: 90%;                 /* slightly narrower than the report; flush with the column's right edge */
+  margin: 0.4em 0 28px auto;
+  padding: 14px 18px;
   background: #0f0f0f;
   border: 1px solid #232323;
-  border-radius: var(--radius);
+  border-radius: 6px;             /* same corner as the composer */
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.5;
-  white-space: pre-wrap;
+  font-size: var(--fs-read);
+  line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.turn-query-urls { font-family: var(--font-mono); font-size: 13px; color: var(--link); }
+.turn-query > :first-child { margin-top: 0; }
+.turn-query > :last-child { margin-bottom: 0; }
+.turn-query pre { background: var(--bg); }   /* the report's code blocks are a shade off the canvas; inside the bubble keep that contrast */
+.turn-query-urls { white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--fs-ui); color: var(--link); }
 .turn-report > :first-child { margin-top: 0; }
-.reader-body .turn-note { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.reader-body .turn-note { font-family: var(--font-mono); font-size: var(--fs-ui); color: var(--muted); }
 .reader-body .turn-note-error { color: var(--error-text); }
 
 .contents-page { margin-bottom: 28px; }
 .contents-page-header {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
   color: var(--link);
   border-bottom: 1px solid var(--blue);
   padding-bottom: 6px;
@@ -462,9 +470,9 @@ html, body {
   text-align: center;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-ui);
 }
-.empty-reader .big { color: var(--label); font-family: var(--font-ui); font-size: 15px; }
+.empty-reader .big { color: var(--label); font-family: var(--font-ui); font-size: var(--fs-read); }
 .reader:has(.empty-reader) .reader-body { height: 100%; }
 
 /* ── Composer ── */
@@ -483,7 +491,7 @@ html, body {
   display: flex;
   align-items: flex-end;     /* controls stay on the last line while the query grows */
   gap: 10px;
-  padding: 11px 11px 11px 0;   /* 32px controls + 22px air = a 56px surface at rest */
+  padding: 13px 13px 13px 0;   /* 34px controls + 26px air + border = a 62px surface at rest */
 }
 .prompt {
   display: block;
@@ -493,11 +501,11 @@ html, body {
   border: none;
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
-  line-height: 20px;
-  padding: 6px 8px 6px 18px;
+  font-size: var(--fs-input);
+  line-height: 22px;
+  padding: 6px 8px 6px 20px;
   resize: none;
-  height: 32px;                /* one line at rest; JS grows it while typing */
+  height: 34px;                /* one line at rest; JS grows it while typing */
   max-height: 40vh;
   overflow-y: hidden;
   transition: height 120ms ease;
@@ -509,25 +517,25 @@ html, body {
 .mode-picker { position: relative; flex-shrink: 0; }
 .mode-btn {
   display: inline-flex; align-items: center; gap: 5px;
-  height: 32px; padding: 0 4px;
+  height: 34px; padding: 0 4px;
   background: transparent; border: none; border-radius: var(--radius);
-  font-family: var(--font-ui); font-size: 13px; font-weight: 500;
+  font-family: var(--font-ui); font-size: var(--fs-ui); font-weight: 500;
   color: var(--muted); cursor: pointer;
   transition: color var(--trans);
 }
 .mode-btn:hover, .mode-btn[aria-expanded="true"] { color: var(--text); }
 .mode-btn:focus-visible { outline: 1px solid var(--red); outline-offset: 1px; }
-.mode-chev { font-size: 10px; color: inherit; opacity: 0.7; }
+.mode-chev { font-size: 12px; color: inherit; opacity: 0.7; }
 .mode-menu {
   position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30;
-  width: 370px; max-width: calc(100vw - 32px); padding: 4px;
+  width: 420px; max-width: calc(100vw - 32px); padding: 4px;
   background: var(--surface); border: 1px solid var(--divider); border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0,0,0,0.6);
   display: flex; flex-direction: column; gap: 2px;
 }
 .mode-menu[hidden] { display: none; }
-/* On a narrow window the menu would run off the left edge: hang it from the composer instead, full width. */
-@media (max-width: 480px) {
+/* On a narrow window the 420px menu would run off the left edge: hang it from the composer instead, full width. */
+@media (max-width: 540px) {
   .composer { position: relative; }
   .mode-picker { position: static; }
   .mode-menu { left: 0; right: 0; width: auto; max-width: none; }
@@ -542,14 +550,14 @@ html, body {
 .mode:hover, .mode:focus-visible { background: var(--surface-2); outline: none; }
 .mode[aria-checked="true"] { border-left-color: var(--red); }
 .mode.mode-contents[aria-checked="true"] { border-left-color: var(--blue); }
-.mode-name { font-family: var(--font-ui); font-size: 13px; font-weight: 500; color: var(--text); }
-.mode-desc { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.mode-name { font-family: var(--font-ui); font-size: var(--fs-ui); font-weight: 500; color: var(--text); }
+.mode-desc { font-family: var(--font-mono); font-size: var(--fs-tiny); color: var(--muted); }
 
 /* Send: the strongest accent in the composer. */
 .btn-send {
   flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; padding: 0;
+  width: 34px; height: 34px; padding: 0;
   background: var(--red); color: #fff;
   border: none; border-radius: 6px;
   cursor: pointer; transition: background 400ms ease, opacity var(--trans);
@@ -570,7 +578,7 @@ html, body {
 }
 
 /* One quiet line under the query, only when there is something to say. */
-.composer-note { display: flex; gap: 12px; padding: 0 18px 10px; margin-top: -4px; font-size: 12px; }
+.composer-note { display: flex; gap: 12px; padding: 0 20px 10px; margin-top: -4px; font-size: var(--fs-small); }
 .composer-note:not(:has(:not(:empty))) { display: none; }
 .composer-helper { font-family: var(--font-mono); color: var(--muted); white-space: nowrap; }
 .composer-error { color: var(--error-text); }
@@ -593,7 +601,7 @@ html, body {
 .log-toggle-btn {
   display: inline-flex; gap: 8px; align-items: center; flex-shrink: 0;
   border: 1px solid var(--divider); border-radius: var(--radius);
-  padding: 3px 8px; font-size: 12px; font-weight: 500; color: var(--text);
+  padding: 3px 8px; font-size: var(--fs-small); font-weight: 500; color: var(--text);
   transition: border-color var(--trans);
 }
 .log-toggle:hover .log-toggle-btn { border-color: var(--red); }
@@ -601,8 +609,8 @@ html, body {
 .log-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
 .chev { display: inline-block; transition: transform var(--trans); }
 .log-body {
-  /* A height chosen on a taller window never crowds out the report: it keeps about 120px. */
-  height: max(80px, min(var(--log-h), 70vh, 100vh - 350px));
+  /* A height chosen on a taller window never crowds out the report: it keeps about 110px. */
+  height: max(80px, min(var(--log-h), 70vh, 100vh - 375px));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -615,11 +623,11 @@ html, body {
   min-height: 0;
   padding: 0 16px 8px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-small);
 }
 .log-row {
   display: grid;
-  grid-template-columns: 70px 18px 90px minmax(0, 1fr);
+  grid-template-columns: 80px 20px 104px minmax(0, 1fr);
   gap: 8px;
   padding: 1px 0;
   color: var(--label);
@@ -638,7 +646,7 @@ html, body {
   border: 1px solid var(--divider);
   border-radius: 6px;
   padding: 0;
-  width: min(560px, calc(100% - 32px));
+  width: min(620px, calc(100% - 32px));
   max-height: calc(100dvh - 48px);
 }
 .dialog::backdrop { background: rgba(0, 0, 0, 0.72); }
@@ -648,15 +656,15 @@ html, body {
   justify-content: space-between;
   padding: 14px 16px 6px 20px;
 }
-.dialog-title { margin: 0; color: var(--red); font-weight: 700; font-size: 14px; }
+.dialog-title { margin: 0; color: var(--red); font-weight: 700; font-size: var(--fs-input); }
 .settings-body { padding: 4px 20px 20px; display: flex; flex-direction: column; gap: 18px; }
 .setting-head { display: flex; align-items: center; gap: 12px; }
 .setting-head .rule { flex: 1; }
-.setting-status { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--label); }
+.setting-status { font-family: var(--font-mono); font-size: var(--fs-small); font-weight: 700; color: var(--label); }
 .setting-status.teal { color: var(--teal); }
 .setting-status.maroon { color: var(--error-text); }
-.setting-help { margin: 6px 0 8px; color: var(--muted); font-size: 12px; }
-.setting-msg { margin: 6px 0 0; font-size: 12px; color: var(--label); min-height: 0; }
+.setting-help { margin: 6px 0 8px; color: var(--muted); font-size: var(--fs-small); }
+.setting-msg { margin: 6px 0 0; font-size: var(--fs-small); color: var(--label); min-height: 0; }
 .setting-msg:empty { display: none; }
 .setting-msg.err { color: var(--error-text); }
 .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -670,7 +678,7 @@ html, body {
   border-radius: var(--radius);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-ui);
   padding: 7px 10px;
 }
 .field:focus { outline: none; border-color: var(--red); }
@@ -685,7 +693,7 @@ html, body {
   .sidebar {
     position: fixed;
     left: 0; top: 0; bottom: 0;
-    width: min(300px, 85vw);
+    width: min(340px, 88vw);
     transform: translateX(-100%);
     visibility: hidden;
     transition: transform var(--trans), visibility var(--trans);
@@ -704,7 +712,11 @@ html, body {
     z-index: 35;
   }
   .resizer-x { display: none; }
-  .log-row { grid-template-columns: 60px 14px minmax(0, 1fr); }
+  .log-row { grid-template-columns: 70px 16px minmax(0, 1fr); }
   .log-row .thread-tag { display: none; }
 }
 
+/* At phone width the thread toggle keeps only its icon, so the title and status stay on screen. */
+@media (max-width: 480px) {
+  .pt-label { display: none; }
+}

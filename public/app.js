@@ -351,7 +351,15 @@ function createTurn(r) {
   el.className = 'turn';
   const urls = (r.urls || []).filter(Boolean);
   const query = r.mode === 'contents' && urls.length ? urls.join('\n') : (r.input || '').trim();
-  if (query) el.append(node('div', 'turn-query' + (r.mode === 'contents' ? ' turn-query-urls' : ''), query));
+  if (query && r.mode === 'contents') {
+    el.append(node('div', 'turn-query turn-query-urls', query));
+  } else if (query) {
+    // The query is written as markdown, so it reads the way the report does.
+    const bubble = node('div', 'turn-query');
+    bubble.append(renderMarkdown(query));
+    dropBrokenImages(bubble);
+    el.append(bubble);
+  }
   el.append(node('div', 'turn-report'));
   return el;
 }
@@ -441,7 +449,7 @@ function fitPrompt() {
   el.style.height = 'auto';
   const max = Math.round(window.innerHeight * 0.4);
   const h = Math.min(el.scrollHeight, max);
-  el.style.height = Math.max(h, 32) + 'px';
+  el.style.height = Math.max(h, 34) + 'px';
   el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
 }
 
