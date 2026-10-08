@@ -9,10 +9,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono:wght@400;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=11" />
+  <link rel="stylesheet" href="/styles.css?v=13" />
   <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" defer></script>
-  <script src="/app.js?v=11" defer></script>
+  <script src="/app.js?v=13" defer></script>
 </head>
 <body>
   <div id="app" class="app">
@@ -132,7 +132,7 @@
           <button type="button" id="btn-key-save" class="btn">Save key</button>
         </div>
         <div class="field-row field-row-end">
-          <button type="button" id="btn-key-delete" class="btn btn-danger">Delete key…</button>
+          <button type="button" id="btn-key-delete" class="btn btn-danger">Delete key</button>
         </div>
         <p class="setting-msg" id="key-msg" role="status"></p>
       </section>
@@ -164,17 +164,6 @@
         <p class="setting-msg" id="notif-msg" role="status"></p>
       </section>
     </div>
-  </dialog>
-
-  <!-- Confirm delete key -->
-  <dialog id="confirm-dialog" class="dialog dialog-sm">
-    <form method="dialog" class="confirm-form">
-      <p id="confirm-msg">Delete the API key from the local .env file? Requests will fail until a new key is saved.</p>
-      <div class="dialog-actions">
-        <button type="submit" class="btn" value="cancel">Cancel</button>
-        <button type="submit" class="btn btn-danger" value="confirm">Delete key</button>
-      </div>
-    </form>
   </dialog>
 </body>
 </html>

@@ -9,8 +9,18 @@ const api = {
       opts.body = JSON.stringify(body);
     }
     const res = await fetch(url, opts);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, data });
+    const text = await res.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (_) {
+      /* not JSON: an error page or plain text */
+    }
+    if (!res.ok) {
+      // The server's own words; an HTML error page is reduced to its text.
+      const detail = data.error || text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      throw Object.assign(new Error(detail || `${res.status} ${res.statusText}`), { status: res.status, data });
+    }
     return data;
   },
   get: (u) => api.json('GET', u),
@@ -47,7 +57,6 @@ let draftTimer = null;
 let pendingDraft = null; // { threadId, field, value }
 let composerThreadId = undefined;
 let composerMode = undefined;
-let lastReaderKey = null;
 let submitting = false;
 let pendingMode = null; // mode chosen locally, not yet confirmed by the server
 
@@ -85,6 +94,19 @@ function setText(el, text) {
   if (el.textContent !== v) el.textContent = v;
 }
 
+/** An element with a class and plain text; text never goes through the HTML parser. */
+function node(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+/** Show why an action failed, in the message line under the query: what failed, then the real error. */
+function showError(what, err) {
+  setComposerError(`${what}: ${(err && err.message) || err}`);
+}
+
 /** Brief confirmation on a button, then restore its label. */
 function flash(btn, text, ms = 1500) {
   if (!btn.dataset.label) btn.dataset.label = btn.textContent;
@@ -99,6 +121,8 @@ function flash(btn, text, ms = 1500) {
 
 /* ── state → view ── */
 function applyState(next) {
+  // Snapshots travel by SSE, the backup poll and action replies; never step back to an older one.
+  if (next.boot === state.boot && next.rev < state.rev) return;
   state = next;
   renderAll();
   maybeNotify();
@@ -146,7 +170,7 @@ function createThreadItem(id) {
   });
   $('.thread-drop', li).addEventListener('click', async (e) => {
     e.stopPropagation();
-    const r = await api.del(`/api/threads/${id}`).catch(() => null);
+    const r = await api.del(`/api/threads/${id}`).catch((err) => showError("Couldn't remove the thread", err));
     if (r) applyState(r.state);
   });
   return li;
@@ -244,89 +268,161 @@ function contentText() {
   return markdown;
 }
 
+/* The reader is a conversation: each request is one turn, the query and then its report.
+   Turns are keyed by request and redrawn only when their own content changes, so the
+   once-a-second state ticks never disturb scroll position or a text selection. */
+const turnEls = new Map(); // requestId -> { key, el }
+let readerThreadId;
+
 function renderReader() {
   const { markdown, pages, req } = getActiveContent();
   const body = $('#reader-body');
   const hasContent = !!(req && (markdown || (pages && pages.length)));
-  const paths = (req?.savedPaths || []).filter((p) => p.path);
 
   $('#btn-save-again').classList.toggle('hidden', !(req && req.status === 'RECEIVED · SAVE FAILED'));
   $('#btn-copy').disabled = !hasContent;
   const wideBtn = $('#btn-width');
   wideBtn.setAttribute('aria-pressed', readerWide ? 'true' : 'false');
   setText(wideBtn, readerWide ? 'Reading width' : 'Wide');
+  wideBtn.title = readerWide ? 'Go back to the reading width' : 'Use the full width';
   wideBtn.disabled = !hasContent;
   body.classList.toggle('wide-width', readerWide);
   body.classList.toggle('reading-width', !readerWide);
   $('#app').classList.toggle('reader-wide', readerWide);
 
-  // Re-render only when the content itself changed, so scroll and selection survive updates.
-  const key = !req
-    ? 'none'
-    : [req.id, hasContent ? (markdown.length + ':' + (pages ? pages.length : 0) + ':' + paths.length) : req.status].join('|');
-  const prog = $('#reader-progress');
-  if (prog) setText(prog, progressLine(req));
-  if (key === lastReaderKey) return;
-  const sameRequest = lastReaderKey && req && lastReaderKey.split('|')[0] === req.id;
-  lastReaderKey = key;
-  if (!sameRequest) $('#reader').scrollTop = 0;
-
-  if (!req) {
-    body.innerHTML = `<div class="empty-reader"><div class="big">Nothing here yet</div><div>Type a search query below and press Enter.</div></div>`;
-    return;
-  }
-  if (!hasContent) {
-    let line = 'The report will appear here when it is ready.';
-    if (req.status === 'FAILED') line = 'No report. The error is shown above.';
-    else if (req.status === 'TRACKING PAUSED') line = 'Tracking is paused. Resume tracking to fetch the report.';
-    else if (req.status === 'DRAFT') line = 'Type a search query below and press Enter.';
-    const big = RUNNING.includes(req.status) ? 'Working…' : 'No report yet';
-    const progress = RUNNING.includes(req.status) ? `<div id="reader-progress" class="reader-progress">${escapeHtml(progressLine(req))}</div>` : '';
-    body.innerHTML = `<div class="empty-reader"><div class="big">${big}</div><div>${escapeHtml(line)}</div>${progress}</div>`;
-    return;
+  const t = state.activeThread;
+  const reqs = (t && t.requests) || [];
+  const tid = t ? t.id : null;
+  const threadChanged = tid !== readerThreadId;
+  if (threadChanged) {
+    readerThreadId = tid;
+    turnEls.clear();
+    body.textContent = '';
   }
 
-  if (pages && pages.length && req.mode === 'contents') {
-    body.innerHTML = pages
-      .map((p, i) => {
-        const path = req.savedPaths && req.savedPaths[i] ? req.savedPaths[i].path : '';
-        return `<div class="contents-page">
-          <div class="contents-page-header">${escapeHtml(p.url || p.title || 'Page ' + (i + 1))}${path ? `<span class="saved">saved to ${escapeHtml(path)}</span>` : ''}</div>
-          ${renderMarkdown(p.markdown || '')}
-        </div>`;
+  if (!reqs.length) {
+    if (!body.querySelector('.empty-reader')) {
+      body.innerHTML = `<div class="empty-reader"><div class="big">Nothing here yet</div><div>Type a search query below and press Enter.</div></div>`;
+    }
+    return;
+  }
+  body.querySelector('.empty-reader')?.remove();
+
+  let added = null;
+  let prev = null;
+  const seen = new Set();
+  reqs.forEach((r, i) => {
+    const isLatest = i === reqs.length - 1;
+    let entry = turnEls.get(r.id);
+    if (!entry) {
+      entry = { key: null, el: createTurn(r) };
+      turnEls.set(r.id, entry);
+      added = entry.el;
+    }
+    const key = turnKey(r, isLatest);
+    if (entry.key !== key) {
+      fillTurnReport($('.turn-report', entry.el), r, isLatest);
+      entry.key = key;
+    }
+    seen.add(r.id);
+    const expected = prev ? prev.nextSibling : body.firstChild;
+    if (entry.el !== expected) body.insertBefore(entry.el, expected);
+    prev = entry.el;
+  });
+  for (const [id, entry] of turnEls) {
+    if (!seen.has(id)) {
+      entry.el.remove();
+      turnEls.delete(id);
+    }
+  }
+
+  // Opening a thread shows its latest turn; a new query scrolls up to the top of the view.
+  if (threadChanged) scrollToTurn(reqs.length > 1 ? prev : null);
+  else if (added) {
+    // Like a chat app, the newest turn reserves a screen of room so its query can sit at the top.
+    for (const entry of turnEls.values()) entry.el.style.minHeight = '';
+    if (reqs.length > 1) added.style.minHeight = Math.max(0, $('#reader').clientHeight - 40) + 'px';
+    scrollToTurn(added);
+  }
+}
+
+function createTurn(r) {
+  const el = document.createElement('article');
+  el.className = 'turn';
+  const urls = (r.urls || []).filter(Boolean);
+  const query = r.mode === 'contents' && urls.length ? urls.join('\n') : (r.input || '').trim();
+  if (query) el.append(node('div', 'turn-query' + (r.mode === 'contents' ? ' turn-query-urls' : ''), query));
+  el.append(node('div', 'turn-report'));
+  return el;
+}
+
+function turnKey(r, isLatest) {
+  const pages = r.mode === 'contents' && r.contentsPages ? r.contentsPages.length : 0;
+  const paths = (r.savedPaths || []).filter((p) => p.path).length;
+  if (r.content || pages) return `c:${(r.content || '').length}:${pages}:${paths}`;
+  return `s:${r.status}:${isLatest}:${r.error ? r.error.message : ''}`;
+}
+
+function fillTurnReport(el, r, isLatest) {
+  const pages = r.mode === 'contents' ? r.contentsPages : null;
+  if (pages && pages.length) {
+    el.replaceChildren(
+      ...pages.map((p, i) => {
+        const path = r.savedPaths && r.savedPaths[i] ? r.savedPaths[i].path : '';
+        const header = node('div', 'contents-page-header', p.url || p.title || 'Page ' + (i + 1));
+        if (path) header.append(node('span', 'saved', 'saved to ' + path));
+        const page = node('div', 'contents-page');
+        page.append(header, renderMarkdown(p.markdown || ''));
+        return page;
       })
-      .join('');
+    );
+  } else if (r.content) {
+    el.replaceChildren(renderMarkdown(r.content));
   } else {
-    body.innerHTML = renderMarkdown(markdown);
+    // No report (yet). While it runs the send button says so; otherwise one plain line.
+    let line = '';
+    if (r.status === 'FAILED') {
+      line = isLatest ? 'No report. The error is shown above.' : [r.error?.title, r.error?.message].filter(Boolean).join(': ') || 'No report.';
+    } else if (r.status === 'TRACKING PAUSED') {
+      line = isLatest ? 'Tracking is paused. Resume tracking to fetch the report.' : 'Tracking was paused before the report arrived.';
+    } else if (!RUNNING.includes(r.status)) {
+      line = 'No report.';
+    }
+    el.replaceChildren(...(line ? [node('p', 'turn-note' + (r.status === 'FAILED' ? ' turn-note-error' : ''), line)] : []));
   }
-  dropBrokenImages(body);
+  dropBrokenImages(el);
+}
+
+function scrollToTurn(el) {
+  const reader = $('#reader');
+  if (!el) {
+    reader.scrollTop = 0;
+    return;
+  }
+  reader.scrollTop += el.getBoundingClientRect().top - reader.getBoundingClientRect().top - 8;
 }
 
 // A dead image link would leave a broken-image icon in the report; remove it instead.
 function dropBrokenImages(root) {
   for (const img of root.querySelectorAll('img')) {
     if (!img.getAttribute('src')) { img.remove(); continue; }
-    const drop = () => (img.closest('p') && !img.closest('p').textContent.trim() ? img.closest('p') : img).remove();
+    const drop = () => {
+      // Drop the paragraph too only when this image was all it held.
+      const p = img.closest('p');
+      img.remove();
+      if (p && !p.textContent.trim() && !p.querySelector('img')) p.remove();
+    };
     if (img.complete && img.naturalWidth === 0) drop();
     else img.addEventListener('error', drop, { once: true });
   }
 }
 
-function progressLine(req) {
-  if (!req || !RUNNING.includes(req.status)) return '';
-  const sched = req.schedule || {};
-  const ok = (v) => v && v !== '—';
-  return [ok(sched.elapsedLabel) && `${sched.elapsedLabel} elapsed`, req.trackingActive && ok(sched.nextCheckLabel) && `next check ${sched.nextCheckLabel}`]
-    .filter(Boolean)
-    .join(' · ');
-}
-
 function renderMarkdown(md) {
-  // Report content comes from external pages and APIs: always sanitize before it reaches the DOM.
+  // Report content comes from external pages and APIs: always sanitize, and hand back nodes, never an HTML string.
   if (typeof marked !== 'undefined' && marked.parse && typeof DOMPurify !== 'undefined') {
-    return DOMPurify.sanitize(marked.parse(md, { async: false }));
+    return DOMPurify.sanitize(marked.parse(md, { async: false }), { RETURN_DOM_FRAGMENT: true });
   }
-  return `<pre>${escapeHtml(md)}</pre>`;
+  return node('pre', '', md);
 }
 
 /* Composer */
@@ -358,7 +454,6 @@ function renderComposer() {
   const prompt = $('#prompt');
   prompt.placeholder = MODE_PLACEHOLDERS[currentMode] || '';
   $('#prompt').setAttribute('aria-label', currentMode === 'contents' ? 'URLs, one per line' : 'Search query');
-  updateHelper();
 
   // Load the draft only when the thread or mode changes; never overwrite what is being typed.
   const tid = t ? t.id : null;
@@ -369,11 +464,22 @@ function renderComposer() {
     setComposerError('');
     fitPrompt();
   }
+  updateHelper();
   setText($('#mode-btn-text'), MODE_NAMES[currentMode] || currentMode);
+  // One request at a time per thread: while it runs, the send button turns blue, breathes, and waits.
+  const running = threadBusy(t);
   const btn = $('#btn-submit');
-  btn.disabled = submitting;
-  btn.classList.toggle('busy', submitting);
-  btn.setAttribute('aria-label', submitting ? 'Submitting…' : 'Submit');
+  btn.disabled = submitting || running;
+  btn.classList.toggle('active', submitting || running);
+  btn.setAttribute('aria-label', submitting ? 'Submitting…' : running ? 'Research running in this thread' : 'Submit');
+  btn.title = running ? BUSY_NOTE : 'Submit (Enter) · new line (Shift+Enter)';
+}
+
+const BUSY_NOTE = 'This thread is still running a request. Start a new thread to run another alongside it.';
+
+function threadBusy(t) {
+  const req = latestRequest(t);
+  return !!(req && RUNNING.includes(req.status));
 }
 
 // The mode descriptions live in the mode menu; the line under the query only carries the Answers length count.
@@ -422,7 +528,7 @@ async function activateThread(id) {
   await flushDraft();
   if (NARROW.matches) setNarrowSidebar(false);
   if (id === state.activeThreadId) return;
-  const r = await api.post(`/api/threads/${id}/activate`).catch(() => null);
+  const r = await api.post(`/api/threads/${id}/activate`).catch((err) => showError("Couldn't open the thread", err));
   if (r) applyState(r.state);
 }
 
@@ -439,7 +545,7 @@ async function flushDraft() {
   const d = pendingDraft;
   pendingDraft = null;
   if (!d) return;
-  await api.patch(`/api/threads/${d.threadId}`, { [d.field]: d.value }).catch(() => {});
+  await api.patch(`/api/threads/${d.threadId}`, { [d.field]: d.value }).catch((err) => showError('Draft not saved', err));
 }
 
 async function setMode(mode) {
@@ -451,7 +557,7 @@ async function setMode(mode) {
   renderComposer();
   renderHeader();
   if (state.activeThreadId) {
-    const r = await api.patch(`/api/threads/${state.activeThreadId}`, { mode }).catch(() => null);
+    const r = await api.patch(`/api/threads/${state.activeThreadId}`, { mode }).catch((err) => showError("Couldn't switch the mode", err));
     if (pendingMode === mode) pendingMode = null;
     if (r) applyState(r.state);
   } else {
@@ -461,6 +567,7 @@ async function setMode(mode) {
 
 async function submit() {
   if (submitting) return;
+  if (threadBusy(state.activeThread)) return setComposerError(BUSY_NOTE);
   const raw = $('#prompt').value;
   const mode = currentMode;
   const urls = mode === 'contents' ? raw.split(/\s+/).map((s) => s.trim()).filter(Boolean) : [];
@@ -469,7 +576,12 @@ async function submit() {
   if (mode === 'answers' && raw.length > 400) return setComposerError(`Answers queries are limited to 400 characters (${raw.length} now).`);
   setComposerError('');
 
+  // The query moves into the thread as soon as it is sent; it comes back only if sending fails.
+  const field = draftField(mode);
   submitting = true;
+  $('#prompt').value = '';
+  fitPrompt();
+  updateHelper();
   renderComposer();
   try {
     clearTimeout(draftTimer);
@@ -480,21 +592,34 @@ async function submit() {
     }
     const threadId = state.activeThreadId;
     const r = await api.post('/api/submit', { threadId, mode, input: mode === 'contents' ? '' : raw, urls });
-    if (mode !== 'contents') {
-      $('#prompt').value = '';
-      if (state.activeThread) state.activeThread.draft = '';
-      await api.patch(`/api/threads/${threadId}`, { draft: '' }).catch(() => {});
+    // The API can turn a submission down and still answer 200: the request comes back FAILED with the reason.
+    const rejected = !!(r.request && r.request.status === 'FAILED');
+    const cleared = !rejected && !$('#prompt').value; // nothing new was typed while it was sending
+    if (cleared) {
+      await api.patch(`/api/threads/${threadId}`, { [field]: '' }).catch((err) => showError("Sent, but the draft wasn't cleared", err));
     }
     submitting = false;
     applyState(r.state);
+    if (cleared && state.activeThread) state.activeThread[field] = '';
+    if (rejected) restoreQuery(raw);
     fitPrompt();
     updateHelper();
   } catch (err) {
     submitting = false;
+    restoreQuery(raw);
     renderComposer();
-    setComposerError(err.message || 'Submit failed.');
+    setComposerError(err.message || String(err));
     refreshState().catch(() => {});
   }
+}
+
+// A query that didn't go through comes back to the composer (unless something new was typed) and is saved as the draft.
+function restoreQuery(raw) {
+  if ($('#prompt').value) return;
+  $('#prompt').value = raw;
+  fitPrompt();
+  updateHelper();
+  scheduleDraftSave();
 }
 
 function maybeNotify() {
@@ -618,7 +743,7 @@ function restorePanels() {
 async function openSettings(focusId) {
   if (NARROW.matches) setNarrowSidebar(false);
   $$('.setting-msg').forEach((m) => { m.textContent = ''; m.classList.remove('err'); });
-  await refreshSettingsUI().catch(() => {});
+  await refreshSettingsUI().catch((err) => settingMsg('key-msg', `Couldn't load settings: ${err.message}`, true));
   $('#settings-dialog').showModal();
   if (focusId) document.getElementById(focusId)?.focus();
 }
@@ -640,6 +765,7 @@ async function refreshSettingsUI() {
   const dirStatus = $('#dir-status');
   dirStatus.textContent = check.status || '—';
   dirStatus.className = 'setting-status ' + (check.ok ? 'teal' : 'maroon');
+  if (check.ok === false) settingMsg('dir-msg', check.error || check.status, true);
   if (document.activeElement !== $('#dir-input')) $('#dir-input').value = data.settings?.outputDir || '';
 
   const perm = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
@@ -655,7 +781,7 @@ async function refreshSettingsUI() {
 function bindUI() {
   $('#btn-new-thread').addEventListener('click', async () => {
     await flushDraft();
-    const r = await api.post('/api/threads', { mode: currentMode }).catch(() => null);
+    const r = await api.post('/api/threads', { mode: currentMode }).catch((err) => showError("Couldn't start a thread", err));
     if (r) applyState(r.state);
     if (NARROW.matches) setNarrowSidebar(false);
     $('#prompt').focus();
@@ -692,7 +818,10 @@ function bindUI() {
     if (!state.activeThreadId) return;
     const title = titleEl.textContent.trim() || 'Untitled';
     if (title === state.activeThread?.title) return;
-    const r = await api.patch(`/api/threads/${state.activeThreadId}`, { title }).catch(() => null);
+    const r = await api.patch(`/api/threads/${state.activeThreadId}`, { title }).catch((err) => {
+      titleEl.textContent = state.activeThread?.title || '';
+      showError("Couldn't rename the thread", err);
+    });
     if (r) applyState(r.state);
   });
   titleEl.addEventListener('keydown', (e) => {
@@ -763,13 +892,13 @@ function bindUI() {
   $('#btn-stop').addEventListener('click', async () => {
     const req = latestRequest(state.activeThread);
     if (!req) return;
-    const r = await api.post(`/api/tracking/${req.id}/stop`).catch(() => null);
+    const r = await api.post(`/api/tracking/${req.id}/stop`).catch((err) => showError("Couldn't stop tracking", err));
     if (r) applyState(r.state);
   });
   $('#btn-resume').addEventListener('click', async () => {
     const req = latestRequest(state.activeThread);
     if (!req) return;
-    const r = await api.post(`/api/tracking/${req.id}/resume`).catch(() => null);
+    const r = await api.post(`/api/tracking/${req.id}/resume`).catch((err) => showError("Couldn't resume tracking", err));
     if (r) applyState(r.state);
   });
   $('#btn-err-settings').addEventListener('click', () => {
@@ -778,30 +907,42 @@ function bindUI() {
   });
 
   $('#btn-copy').addEventListener('click', async () => {
-    const ok = await navigator.clipboard.writeText(contentText() || '').then(() => true, () => false);
-    flash($('#btn-copy'), ok ? 'Copied' : 'Copy failed');
+    try {
+      await navigator.clipboard.writeText(contentText() || '');
+      flash($('#btn-copy'), 'Copied');
+    } catch (err) {
+      showError('Copy failed', err);
+    }
   });
-  const openPath = async (btn, p) => {
-    if (!p) return;
-    const ok = await api.post('/api/open-path', { path: p }).then(() => true, () => false);
-    flash(btn, ok ? 'Opened' : "Couldn't open", ok ? 1200 : 2500);
+  const openPath = async (btn, p, fail) => {
+    try {
+      await api.post('/api/open-path', { path: p });
+      flash(btn, 'Opened', 1200);
+    } catch (err) {
+      fail(err);
+    }
   };
   $('#btn-open-folder').addEventListener('click', async () => {
     const req = latestRequest(state.activeThread);
+    const fail = (err) => showError("Couldn't open the folder", err);
     let p = req?.savedPaths?.[0]?.path;
     if (p) p = p.replace(/\/[^/]+$/, '') || p;
-    else p = (await api.get('/api/settings').catch(() => ({}))).settings?.outputDir;
-    openPath($('#btn-open-folder'), p);
+    else {
+      const s = await api.get('/api/settings').catch(fail);
+      if (!s) return;
+      p = s.settings?.outputDir;
+    }
+    if (!p) return fail('no output folder is set');
+    openPath($('#btn-open-folder'), p, fail);
   });
   $('#btn-save-again').addEventListener('click', async () => {
     const req = latestRequest(state.activeThread);
     if (!req) return;
     const btn = $('#btn-save-again');
     btn.disabled = true;
-    const r = await api.post(`/api/save-again/${req.id}`).catch((err) => ({ err }));
+    const r = await api.post(`/api/save-again/${req.id}`).catch((err) => showError('Save failed', err));
     btn.disabled = false;
-    if (r.state) applyState(r.state);
-    else flash(btn, 'Save failed', 2500);
+    if (r) applyState(r.state);
   });
   $('#btn-width').addEventListener('click', () => {
     readerWide = !readerWide;
@@ -846,22 +987,19 @@ function bindUI() {
     if (e.key === 'Enter') $('#btn-key-save').click();
   });
   $('#btn-key-delete').addEventListener('click', async () => {
-    const confirmDlg = $('#confirm-dialog');
-    confirmDlg.returnValue = '';
-    confirmDlg.showModal();
-    const result = await new Promise((resolve) =>
-      confirmDlg.addEventListener('close', () => resolve(confirmDlg.returnValue), { once: true })
-    );
-    if (result === 'confirm') {
-      await api.del('/api/key').catch((err) => settingMsg('key-msg', err.message, true));
+    try {
+      await api.del('/api/key');
+      settingMsg('key-msg', '');
       await refreshSettingsUI();
+    } catch (err) {
+      settingMsg('key-msg', err.message, true);
     }
   });
   $('#btn-dir-save').addEventListener('click', async () => {
     try {
       const r = await api.put('/api/settings', { outputDir: $('#dir-input').value.trim() });
       const check = r.outputCheck || {};
-      settingMsg('dir-msg', check.ok === false ? check.message || check.status || 'Folder is not writable.' : '', check.ok === false);
+      settingMsg('dir-msg', check.ok === false ? check.error || check.status : '', check.ok === false);
       $('#dir-input').blur();
       await refreshSettingsUI();
     } catch (err) {
@@ -874,16 +1012,23 @@ function bindUI() {
   $('#btn-dir-open').addEventListener('click', async () => {
     const p = $('#dir-input').value.trim();
     if (!p) return;
-    const ok = await api.post('/api/open-path', { path: p }).then(() => true, () => false);
-    flash($('#btn-dir-open'), ok ? 'Opened' : "Couldn't open", ok ? 1200 : 2500);
+    openPath($('#btn-dir-open'), p, (err) => settingMsg('dir-msg', `Couldn't open the folder: ${err.message}`, true));
   });
   $('#btn-notif-request').addEventListener('click', async () => {
     if (typeof Notification !== 'undefined') await Notification.requestPermission();
     await refreshSettingsUI();
   });
   $('#btn-notif-test').addEventListener('click', () => {
-    new Notification('You.com Research Console', { body: 'Test notification' });
-    flash($('#btn-notif-test'), 'Sent');
+    settingMsg('notif-msg', '');
+    try {
+      const n = new Notification('You.com Research Console', { body: 'Test notification' });
+      n.addEventListener('error', () =>
+        settingMsg('notif-msg', `The browser didn't show it (permission: ${Notification.permission}).`, true)
+      );
+      flash($('#btn-notif-test'), 'Sent');
+    } catch (err) {
+      settingMsg('notif-msg', err.message, true);
+    }
   });
 
   // Escape closes the topmost transient thing. Dialogs handle their own Escape.
@@ -901,8 +1046,19 @@ function bindUI() {
   });
 
   // Backup poll in case SSE drops; rendering is in place, so this never disturbs the view.
+  // It is also how a stopped server shows: the message stays until the server answers again.
+  let lostMsg = '';
   setInterval(() => {
-    refreshState().catch(() => {});
+    refreshState().then(
+      () => {
+        if (lostMsg && $('#composer-error').textContent === lostMsg) setComposerError('');
+        lostMsg = '';
+      },
+      (err) => {
+        lostMsg = `Can't reach the server: ${err.message}`;
+        setComposerError(lostMsg);
+      }
+    );
   }, 2000);
 }
 

@@ -53,11 +53,21 @@ function startTick(requestId) {
   tickTimers.set(requestId, iv);
 }
 
+// Statuses during which a request is still in flight.
+const RUNNING = ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'];
+
 async function submit({ threadId, mode, input, urls }) {
   const thread = stateStore.getThread(threadId);
   if (!thread) {
     const err = new Error('Thread not found');
     err.status = 404;
+    throw err;
+  }
+  // One request at a time per thread; other threads run alongside it.
+  const last = thread.requests && thread.requests[thread.requests.length - 1];
+  if (last && RUNNING.includes(last.status)) {
+    const err = new Error(`This thread is still running a request (${last.status}). Start a new thread to run another alongside it.`);
+    err.status = 409;
     throw err;
   }
   const m = stateStore.normalizeMode(mode || thread.mode);

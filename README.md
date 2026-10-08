@@ -51,7 +51,7 @@ Launching opens the console in its own window (Chrome, Chromium, Brave or Edge i
 | Threads / jobs / logs | `data/state.json` (survives restart) |
 | Demo output (seeded) | `data/output/` |
 
-On first launch with empty state, a sample **SAVED · VERIFIED** Frontier report is seeded so you can screenshot the reader without a live key.
+When started with `npm start` on empty state, a sample **SAVED · VERIFIED** Frontier report is seeded so you can screenshot the reader without a live key. The desktop launcher sets `YDC_DEMO=0`, so installed launches skip it.
 
 ### Settings UI
 

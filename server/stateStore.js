@@ -66,6 +66,9 @@ let state = {
 
 let persistTimer = null;
 let onChange = () => {};
+// Every change bumps rev, so the browser can drop a snapshot that arrives after a newer one.
+const BOOT = Date.now().toString(36);
+let rev = 0;
 
 function ensureDataDir() {
   const dir = path.dirname(STATE_PATH);
@@ -98,6 +101,21 @@ function load() {
           r.status = 'TRACKING PAUSED';
           r.trackingActive = false;
           r.pauseReason = 'app_restart';
+        } else if (['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'].includes(r.status)) {
+          // Nothing can pick these up after a restart; leaving them "running" would hold the thread forever.
+          const hasReport = !!(r.content || (r.contentsPages && r.contentsPages.length));
+          r.status = hasReport ? 'RECEIVED · SAVE FAILED' : 'FAILED';
+          r.trackingActive = false;
+          r.error = {
+            title: hasReport ? 'Save interrupted' : 'Submission interrupted',
+            operation: hasReport ? 'save' : 'submit',
+            status: null,
+            message: hasReport
+              ? 'The app stopped while saving the report. Use Save again to write it to disk.'
+              : 'The app stopped before the API answered, so no job was started.',
+            timestamp: new Date().toISOString(),
+            jobId: r.jobId || null,
+          };
         }
       }
     }
@@ -150,6 +168,7 @@ function cancelPendingPersist() {
 }
 
 function touch() {
+  rev += 1;
   schedulePersist();
   try {
     onChange(getPublicState());
@@ -337,6 +356,8 @@ function updateRequest(requestId, patch) {
 function getPublicState() {
   const active = state.activeThreadId ? getThread(state.activeThreadId) : null;
   return {
+    boot: BOOT,
+    rev,
     activeThreadId: state.activeThreadId,
     threads: listSidebarThreads(),
     // Full thread objects keyed — frontend needs active thread detail

@@ -25,10 +25,11 @@ function start(callback) {
   if (ENABLED) arm(FIRST_CONNECT_MS);
 }
 
-function attach(req) {
+// Takes the SSE response: its 'close' is the page going away (a request's 'close' can fire as soon as the GET is read).
+function attach(res) {
   open += 1;
   clearTimeout(timer);
-  req.on('close', () => {
+  res.on('close', () => {
     open -= 1;
     if (ENABLED && open === 0) arm(GRACE_MS);
   });
