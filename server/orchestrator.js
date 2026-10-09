@@ -9,17 +9,11 @@ const saver = require('./saver');
 
 /** @type {Map<string, NodeJS.Timeout>} */
 const timers = new Map();
-/** @type {Map<string, NodeJS.Timeout>} */
-const tickTimers = new Map();
 
 function clearTimers(requestId) {
   if (timers.has(requestId)) {
     clearTimeout(timers.get(requestId));
     timers.delete(requestId);
-  }
-  if (tickTimers.has(requestId)) {
-    clearInterval(tickTimers.get(requestId));
-    tickTimers.delete(requestId);
   }
 }
 
@@ -37,21 +31,8 @@ function refreshSchedule(request) {
   return sched;
 }
 
-function startTick(requestId) {
-  if (tickTimers.has(requestId)) return;
-  const iv = setInterval(() => {
-    const found = stateStore.getRequest(requestId);
-    if (!found || !found.request.trackingActive) {
-      clearInterval(iv);
-      tickTimers.delete(requestId);
-      return;
-    }
-    refreshSchedule(found.request);
-    stateStore.touch();
-  }, 1000);
-  if (typeof iv.unref === 'function') iv.unref();
-  tickTimers.set(requestId, iv);
-}
+// Statuses during which a request is still in flight.
+const RUNNING = ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'];
 
 async function submit({ threadId, mode, input, urls }) {
   const thread = stateStore.getThread(threadId);
@@ -60,8 +41,16 @@ async function submit({ threadId, mode, input, urls }) {
     err.status = 404;
     throw err;
   }
+  // One request at a time per thread; other threads run alongside it.
+  const last = thread.requests && thread.requests[thread.requests.length - 1];
+  if (last && RUNNING.includes(last.status)) {
+    const err = new Error(`This thread is still running a request (${last.status}). Start a new thread to run another alongside it.`);
+    err.status = 409;
+    throw err;
+  }
   const m = stateStore.normalizeMode(mode || thread.mode);
-  stateStore.updateThread(threadId, { mode: m, draft: input || '', urlsDraft: (urls || []).join('\n') });
+  // The draft is the composer's: the page clears it when it sends and puts the query back if sending fails.
+  stateStore.updateThread(threadId, { mode: m });
 
   const req = stateStore.createRequest(threadId, {
     mode: m,
@@ -92,7 +81,6 @@ async function submit({ threadId, mode, input, urls }) {
       // Move to RESEARCHING and start polling
       stateStore.updateRequest(req.id, { status: 'RESEARCHING' });
       scheduleNextPoll(req.id);
-      startTick(req.id);
       return stateStore.getRequest(req.id).request;
     }
 
@@ -171,13 +159,10 @@ function scheduleNextPoll(requestId) {
 
   const sched = refreshSchedule(req);
   stateStore.touch();
+  if (!sched) return;
 
-  if (!sched || sched.exhausted) {
-    pauseTracking(requestId, 'failsafe_15min');
-    return;
-  }
-
-  const delay = Math.max(0, sched.nextCheckMs || sched.intervalMs);
+  // Past the failsafe the next check is the last one, and it runs now.
+  const delay = sched.exhausted ? 0 : Math.max(0, sched.nextCheckMs || sched.intervalMs);
   const t = setTimeout(() => {
     timers.delete(requestId);
     doPoll(requestId).catch((err) => {
@@ -197,13 +182,6 @@ async function doPoll(requestId) {
   if (!found || !found.request.trackingActive) return;
   const req = found.request;
 
-  // Failsafe check before poll
-  const pre = refreshSchedule(req);
-  if (pre && pre.exhausted) {
-    pauseTracking(requestId, 'failsafe_15min');
-    return;
-  }
-
   req.lastCheckAt = new Date().toISOString();
   stateStore.touch();
 
@@ -213,12 +191,12 @@ async function doPoll(requestId) {
 
     if (status === 'queued') {
       stateStore.updateRequest(requestId, { status: 'SUBMITTED', rawResponse: data });
-      scheduleNextPoll(requestId);
+      pollAgainOrEnd(requestId, `You.com still had the job queued after ${TRACKING_LIMIT}, so the app stopped waiting for it.`);
       return;
     }
     if (status === 'running') {
       stateStore.updateRequest(requestId, { status: 'RESEARCHING', rawResponse: data });
-      scheduleNextPoll(requestId);
+      pollAgainOrEnd(requestId, `You.com still had the job running after ${TRACKING_LIMIT}, so the app stopped waiting for it.`);
       return;
     }
     if (status === 'completed') {
@@ -254,7 +232,7 @@ async function doPoll(requestId) {
           title: status === 'cancelled' ? 'Research cancelled' : 'Research failed',
           operation: 'research',
           status: null,
-          message: data.error || data.message || `Task ${status}`,
+          message: plainText(data.error) || plainText(data.message) || (data.error ? JSON.stringify(data.error) : `Task ${status}`),
           timestamp: new Date().toISOString(),
           jobId: req.jobId,
         },
@@ -268,23 +246,15 @@ async function doPoll(requestId) {
       return;
     }
     // Unknown status — keep polling
-    scheduleNextPoll(requestId);
+    pollAgainOrEnd(requestId, `You.com hadn't finished the job after ${TRACKING_LIMIT} (last status: ${status || 'none'}), so the app stopped waiting for it.`);
   } catch (err) {
-    // Transient poll errors: keep tracking unless it's auth
-    if (err.code === 'NO_API_KEY' || err.status === 401 || err.status === 403) {
-      stateStore.updateRequest(requestId, {
-        status: 'FAILED',
-        trackingActive: false,
-        error: {
-          title: 'API authentication error',
-          operation: 'research.poll',
-          status: err.status || 401,
-          message: err.message,
-          timestamp: new Date().toISOString(),
-          jobId: req.jobId,
-        },
+    // A rejected key or a job You.com doesn't know won't recover; anything else is retried on the schedule.
+    if (err.code === 'NO_API_KEY' || err.status === 401 || err.status === 403 || err.status === 404) {
+      endTracking(requestId, {
+        title: err.status === 404 ? 'Research job not found' : 'API authentication error',
+        status: err.status || 401,
+        message: err.message,
       });
-      clearTimers(requestId);
       return;
     }
     log('error', 'poll transient error — will retry', {
@@ -292,8 +262,44 @@ async function doPoll(requestId) {
       operation: 'research.poll',
       details: { message: err.message },
     });
-    scheduleNextPoll(requestId);
+    pollAgainOrEnd(requestId, `The app couldn't reach You.com for the result within ${TRACKING_LIMIT} of tracking. Last error: ${err.message}`);
   }
+}
+
+// An API field is shown only when it is plain text (or carries a text message), never as "[object Object]".
+function plainText(v) {
+  return typeof v === 'string' ? v : v && typeof v.message === 'string' ? v.message : '';
+}
+
+const TRACKING_LIMIT = `${poller.FAILSAFE_MS / 60000} minutes`;
+
+// Keep checking until You.com answers; once tracking passes the failsafe, the check just made was the last.
+function pollAgainOrEnd(requestId, timeoutMessage) {
+  const found = stateStore.getRequest(requestId);
+  if (!found) return;
+  const sched = refreshSchedule(found.request);
+  if (sched && sched.exhausted) {
+    endTracking(requestId, { title: 'Research timed out', status: null, message: timeoutMessage });
+    return;
+  }
+  scheduleNextPoll(requestId);
+}
+
+function endTracking(requestId, { title, status, message }) {
+  clearTimers(requestId);
+  const req = stateStore.getRequest(requestId).request;
+  stateStore.updateRequest(requestId, {
+    status: 'FAILED',
+    trackingActive: false,
+    error: { title, operation: 'research.poll', status, message, timestamp: new Date().toISOString(), jobId: req.jobId },
+  });
+  log('error', title, {
+    threadId: req.threadId,
+    jobId: req.jobId,
+    operation: 'research.poll',
+    outcome: 'failed',
+    details: { message },
+  });
 }
 
 async function saveRequestContent(requestId) {
@@ -380,62 +386,6 @@ async function saveRequestContent(requestId) {
   return stateStore.getRequest(requestId).request;
 }
 
-function pauseTracking(requestId, reason = 'user_stop') {
-  clearTimers(requestId);
-  const found = stateStore.getRequest(requestId);
-  if (!found) return null;
-  const req = found.request;
-  if (['SAVED · VERIFIED', 'FAILED', 'RECEIVED · SAVE FAILED', 'RECEIVED', 'SAVING'].includes(req.status)) {
-    // Terminal / post-receive — just stop timers
-    stateStore.updateRequest(requestId, { trackingActive: false });
-    return stateStore.getRequest(requestId).request;
-  }
-  stateStore.updateRequest(requestId, {
-    status: 'TRACKING PAUSED',
-    trackingActive: false,
-    pauseReason: reason,
-  });
-  refreshSchedule(req);
-  log('state', 'TRACKING PAUSED', {
-    threadId: req.threadId,
-    jobId: req.jobId,
-    operation: 'tracking.pause',
-    details: { reason },
-  });
-  return stateStore.getRequest(requestId).request;
-}
-
-function resumeTracking(requestId) {
-  const found = stateStore.getRequest(requestId);
-  if (!found) {
-    const err = new Error('Request not found');
-    err.status = 404;
-    throw err;
-  }
-  const req = found.request;
-  if (!req.jobId) {
-    const err = new Error('No job ID to resume');
-    err.status = 400;
-    throw err;
-  }
-  // Resume from appropriate cadence based on original submittedAt
-  stateStore.updateRequest(requestId, {
-    status: 'RESEARCHING',
-    trackingActive: true,
-    pauseReason: null,
-  });
-  // Reset lastCheckAt so next poll uses interval from now relative to schedule
-  // Keep lastCheckAt so we don't immediately spam; if overdue, nextCheckMs=0
-  log('state', 'tracking resumed', {
-    threadId: req.threadId,
-    jobId: req.jobId,
-    operation: 'tracking.resume',
-  });
-  startTick(requestId);
-  scheduleNextPoll(requestId);
-  return stateStore.getRequest(requestId).request;
-}
-
 async function saveAgain(requestId) {
   const found = stateStore.getRequest(requestId);
   if (!found) {
@@ -457,10 +407,24 @@ async function saveAgain(requestId) {
   return saveRequestContent(requestId);
 }
 
-function stopAllTracking() {
-  for (const [id] of timers) {
-    pauseTracking(id, 'app_close');
+// On startup, every job You.com is still working on picks up tracking where it left off.
+function trackInFlight() {
+  for (const t of stateStore.getRawState().threads) {
+    for (const r of t.requests || []) {
+      if (!r.trackingActive || !r.jobId) continue;
+      log('state', 'tracking continues after restart', { threadId: t.id, jobId: r.jobId, operation: 'tracking.restart' });
+      scheduleNextPoll(r.id);
+    }
   }
+}
+
+// How many requests are still in flight; the server stays up after the window closes until this is 0.
+function inFlightCount() {
+  let n = 0;
+  for (const t of stateStore.getRawState().threads) {
+    for (const r of t.requests || []) if (RUNNING.includes(r.status)) n += 1;
+  }
+  return n;
 }
 
 function ackNotify(requestId) {
@@ -478,11 +442,10 @@ function ackNotify(requestId) {
 
 module.exports = {
   submit,
-  pauseTracking,
-  resumeTracking,
   saveAgain,
   saveRequestContent,
-  stopAllTracking,
+  trackInFlight,
+  inFlightCount,
   clearTimers,
   refreshSchedule,
   scheduleNextPoll,

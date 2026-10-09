@@ -7,6 +7,7 @@ const envKey = require('./envKey');
 const settings = require('./settings');
 const stateStore = require('./stateStore');
 const orchestrator = require('./orchestrator');
+const presence = require('./presence');
 const { getLogs, log, redact } = require('./logger');
 
 function createRouter() {
@@ -56,6 +57,7 @@ function createRouter() {
   });
 
   router.get('/events', (req, res) => {
+    presence.attach(res);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -146,21 +148,6 @@ function createRouter() {
       res.json({ request, state: stateStore.getPublicState() });
     } catch (err) {
       res.status(err.status || 500).json({ error: redact(err.message) });
-    }
-  });
-
-  router.post('/tracking/:requestId/stop', (req, res) => {
-    const request = orchestrator.pauseTracking(req.params.requestId, 'user_stop');
-    if (!request) return res.status(404).json({ error: 'Request not found' });
-    res.json({ request, state: stateStore.getPublicState() });
-  });
-
-  router.post('/tracking/:requestId/resume', (req, res) => {
-    try {
-      const request = orchestrator.resumeTracking(req.params.requestId);
-      res.json({ request, state: stateStore.getPublicState() });
-    } catch (err) {
-      res.status(err.status || 400).json({ error: err.message });
     }
   });
 

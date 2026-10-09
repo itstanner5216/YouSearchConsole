@@ -43,7 +43,9 @@ async function parseError(res) {
   let message = body;
   try {
     const j = JSON.parse(body);
-    message = j.message || j.error || j.detail || body;
+    // Use a field only when it is plain text; anything nested keeps the whole body, never "[object Object]".
+    const text = (v) => (typeof v === 'string' ? v : v && typeof v.message === 'string' ? v.message : '');
+    message = text(j.message) || text(j.error) || text(j.detail) || body;
   } catch (_) {
     /* keep text */
   }

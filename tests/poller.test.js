@@ -16,12 +16,13 @@ describe('poller schedule', () => {
     assert.equal(poller.getInterval(5 * 60 * 1000).intervalMs, 15000);
   });
 
-  it('uses 5s between 6 and 15 minutes', () => {
-    assert.equal(poller.getInterval(6 * 60 * 1000).intervalMs, 5000);
-    assert.equal(poller.getInterval(14 * 60 * 1000).intervalMs, 5000);
+  it('uses 30s between 6 and 15 minutes', () => {
+    assert.equal(poller.getInterval(6 * 60 * 1000).intervalMs, 30000);
+    assert.equal(poller.getInterval(15 * 60 * 1000 - 1).intervalMs, 30000);
+    assert.equal(poller.getInterval(15 * 60 * 1000 - 1).exhausted, false);
   });
 
-  it('exhausts at 15 minutes failsafe', () => {
+  it('exhausts at the 15 minute failsafe', () => {
     const r = poller.getInterval(15 * 60 * 1000);
     assert.equal(r.exhausted, true);
     assert.equal(r.intervalMs, 0);
@@ -39,8 +40,8 @@ describe('poller schedule', () => {
   });
 
   it('computeSchedule marks exhausted past failsafe', () => {
-    const submitted = Date.now() - 16 * 60 * 1000;
-    const s = poller.computeSchedule(submitted, Date.now(), null);
-    assert.equal(s.exhausted, true);
+    const now = Date.now();
+    assert.equal(poller.computeSchedule(now - 14 * 60 * 1000, now, null).exhausted, false);
+    assert.equal(poller.computeSchedule(now - 16 * 60 * 1000, now, null).exhausted, true);
   });
 });

@@ -13,6 +13,10 @@ const stateStore = require('./stateStore');
 const settings = require('./settings');
 const { createRouter } = require('./routes');
 const orchestrator = require('./orchestrator');
+const presence = require('./presence');
+const poller = require('./poller');
+
+const APP_ID = 'you-research-console';
 
 const PORT = Number(process.env.PORT) || 3847;
 
@@ -20,13 +24,15 @@ function seedDemoIfEmpty() {
   const raw = stateStore.getRawState();
   if (raw.threads && raw.threads.length > 0) return;
 
-  // Ensure a default output dir for demo
+  // Ensure a default output dir
   const demoOut = path.join(ROOT, 'data', 'output');
   if (!fs.existsSync(demoOut)) fs.mkdirSync(demoOut, { recursive: true });
   const s = settings.load();
   if (!s.outputDir) {
     settings.update({ outputDir: demoOut });
   }
+  // Installed launches start clean; the sample report is for development screenshots.
+  if (process.env.YDC_DEMO === '0') return;
 
   const sampleMd = `# RISC-V vs ARM: Key Architectural Differences
 
@@ -97,9 +103,11 @@ function main() {
   settings.load();
   stateStore.load();
   seedDemoIfEmpty();
+  orchestrator.trackInFlight();
 
   const app = express();
   app.use(express.json({ limit: '4mb' }));
+  app.get('/api/health', (_req, res) => res.json({ app: APP_ID, pid: process.pid, exitWhenClosed: presence.enabled }));
   app.use(express.static(path.join(ROOT, 'public')));
   app.use('/api', createRouter());
 
@@ -107,20 +115,49 @@ function main() {
     res.sendFile(path.join(ROOT, 'public', 'index.html'));
   });
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${PORT}`;
     fs.writeFileSync(path.join(ROOT, 'PREVIEW_URL.txt'), url + '\n', 'utf8');
     log('info', `server listening on ${url}`, { operation: 'startup', outcome: 'ok' });
     console.log(`You.com Research Console → ${url}`);
   });
 
+  // A job You.com has accepted keeps running there; tracking state is persisted so the next start picks it up.
   function shutdown() {
-    log('info', 'shutting down — pausing tracking', { operation: 'shutdown' });
-    orchestrator.stopAllTracking();
+    log('info', 'shutting down', { operation: 'shutdown' });
     stateStore.persistNow();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
   }
+
+  // With the window closed, requests still in flight finish first: the report is saved, then the server exits.
+  // The wait never outlasts the tracking failsafe, so a call that hangs can't keep the server up.
+  const MAX_WAIT_MS = poller.FAILSAFE_MS + 60 * 1000;
+  let waitTimer = null;
+  let waitSince = null;
+  function exitWhenDone() {
+    clearTimeout(waitTimer);
+    if (presence.open > 0) return; // a window came back
+    const n = orchestrator.inFlightCount();
+    if (n === 0) {
+      log('info', 'last window closed — exiting', { operation: 'shutdown' });
+      shutdown();
+      return;
+    }
+    if (waitSince === null) {
+      waitSince = Date.now();
+      log('info', `last window closed — waiting for ${n === 1 ? '1 request' : n + ' requests'} to finish before exiting`, { operation: 'shutdown' });
+    } else if (Date.now() - waitSince >= MAX_WAIT_MS) {
+      log('error', `exiting with ${n === 1 ? '1 request' : n + ' requests'} still unfinished after ${Math.round(MAX_WAIT_MS / 60000)} minutes`, { operation: 'shutdown' });
+      shutdown();
+      return;
+    }
+    waitTimer = setTimeout(exitWhenDone, 5000);
+  }
+  presence.start(() => {
+    waitSince = null;
+    exitWhenDone();
+  });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

@@ -45,7 +45,7 @@ describe('orchestrator tracking + notify timing', () => {
 
   afterEach(() => {
     for (const id of [...orchestrator.timers.keys()]) {
-      orchestrator.pauseTracking(id, 'test_cleanup');
+      orchestrator.clearTimers(id);
     }
     youClient.resetFetch();
     try {
@@ -61,58 +61,100 @@ describe('orchestrator tracking + notify timing', () => {
     if (isolation) isolation.restore();
   });
 
-  it('stop and resume tracking against existing job ID', async () => {
-    let polls = 0;
+  // A research request You.com has accepted, submitted `agoMs` ago and still being tracked.
+  function trackedRequest(agoMs) {
+    const thread = stateStore.createThread('frontier');
+    const req = stateStore.createRequest(thread.id, { mode: 'frontier', input: 'q', status: 'RESEARCHING' });
+    stateStore.updateRequest(req.id, {
+      status: 'RESEARCHING',
+      jobId: 'task-tracked-1',
+      trackingActive: true,
+      submittedAt: new Date(Date.now() - agoMs).toISOString(),
+    });
+    return req.id;
+  }
+  const MIN = 60 * 1000;
+  const current = (id) => stateStore.getRequest(id).request;
+
+  it('keeps tracking a running job until the failsafe; there is no pause', async () => {
+    youClient.setFetch(mockFetchSequence([{ status: 200, body: { task_id: 'task-tracked-1', status: 'running' } }]));
+    const id = trackedRequest(10 * MIN);
+    await orchestrator.doPoll(id);
+    assert.equal(current(id).status, 'RESEARCHING');
+    assert.equal(current(id).trackingActive, true);
+    assert.equal(current(id).schedule.intervalMs, 30000);
+    assert.ok(orchestrator.timers.has(id));
+    assert.equal(orchestrator.inFlightCount(), 1);
+  });
+
+  it('retries a transient poll error on the schedule', async () => {
+    youClient.setFetch(mockFetchSequence([{ status: 503, body: { message: 'Service Unavailable' } }]));
+    const id = trackedRequest(60 * 1000);
+    await orchestrator.doPoll(id);
+    assert.equal(current(id).status, 'RESEARCHING');
+    assert.equal(current(id).trackingActive, true);
+    assert.ok(orchestrator.timers.has(id));
+  });
+
+  it('ends tracking when You.com no longer knows the job', async () => {
+    youClient.setFetch(mockFetchSequence([{ status: 404, body: { message: 'Task not found' } }]));
+    const id = trackedRequest(60 * 1000);
+    await orchestrator.doPoll(id);
+    assert.equal(current(id).status, 'FAILED');
+    assert.equal(current(id).trackingActive, false);
+    assert.equal(current(id).error.title, 'Research job not found');
+    assert.equal(current(id).error.message, 'Task not found');
+    assert.ok(!orchestrator.timers.has(id));
+    assert.equal(orchestrator.inFlightCount(), 0);
+  });
+
+  it('past the 15 minute failsafe makes one last check: still running ends as timed out', async () => {
+    youClient.setFetch(mockFetchSequence([{ status: 200, body: { task_id: 'task-tracked-1', status: 'running' } }]));
+    const id = trackedRequest(15 * MIN + 1000);
+    await orchestrator.doPoll(id);
+    assert.equal(current(id).status, 'FAILED');
+    assert.equal(current(id).trackingActive, false);
+    assert.equal(current(id).error.title, 'Research timed out');
+    assert.equal(current(id).error.message, 'You.com still had the job running after 15 minutes, so the app stopped waiting for it.');
+    assert.ok(!orchestrator.timers.has(id));
+  });
+
+  it('past the 15 minute failsafe makes one last check: a finished report is still saved', async () => {
     youClient.setFetch(
       mockFetchSequence([
-        {
-          status: 200,
-          body: {
-            task_id: 'task-resume-1',
-            type: 'research',
-            status: 'queued',
-            stream_url: '',
-            created_at: new Date().toISOString(),
-          },
-        },
-        () => {
-          polls += 1;
-          return {
-            ok: true,
-            status: 200,
-            statusText: '200',
-            headers: { get: () => null },
-            async json() {
-              return { task_id: 'task-resume-1', status: 'running' };
-            },
-            async text() {
-              return '{}';
-            },
-          };
-        },
+        { status: 200, body: { task_id: 'task-tracked-1', status: 'completed', result: { output: { content: '# Late', content_type: 'text' } } } },
       ])
     );
+    const id = trackedRequest(60 * MIN);
+    orchestrator.scheduleNextPoll(id);
+    for (let i = 0; i < 50 && current(id).status !== 'SAVED · VERIFIED'; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(current(id).status, 'SAVED · VERIFIED');
+    assert.equal(fs.readFileSync(current(id).savedPaths[0].path, 'utf8'), '# Late');
+  });
 
-    const thread = stateStore.createThread('frontier');
-    const req = await orchestrator.submit({
-      threadId: thread.id,
-      mode: 'frontier',
-      input: 'test question',
-    });
-    assert.equal(req.jobId, 'task-resume-1');
-    assert.ok(['SUBMITTED', 'RESEARCHING'].includes(req.status));
+  it('shows a failed job\'s error as text, never [object Object]', async () => {
+    youClient.setFetch(
+      mockFetchSequence([
+        { status: 200, body: { status: 'failed', error: { message: 'Quota exceeded', code: 'quota' } } },
+        { status: 200, body: { status: 'failed', error: { code: 'E42' } } },
+      ])
+    );
+    const a = trackedRequest(60 * 1000);
+    await orchestrator.doPoll(a);
+    assert.equal(current(a).error.message, 'Quota exceeded');
+    const b = trackedRequest(60 * 1000);
+    await orchestrator.doPoll(b);
+    assert.equal(current(b).error.message, '{"code":"E42"}');
+  });
 
-    const paused = orchestrator.pauseTracking(req.id, 'user_stop');
-    assert.equal(paused.status, 'TRACKING PAUSED');
-    assert.equal(paused.trackingActive, false);
-    assert.equal(paused.jobId, 'task-resume-1');
-
-    const resumed = orchestrator.resumeTracking(req.id);
-    assert.equal(resumed.trackingActive, true);
-    assert.equal(resumed.jobId, 'task-resume-1');
-    assert.equal(resumed.status, 'RESEARCHING');
-
-    orchestrator.pauseTracking(req.id, 'test_cleanup');
+  it('picks up tracking for in-flight jobs on startup', () => {
+    const id = trackedRequest(2 * 60 * 1000);
+    const done = trackedRequest(2 * 60 * 1000);
+    stateStore.updateRequest(done, { status: 'SAVED · VERIFIED', trackingActive: false });
+    orchestrator.trackInFlight();
+    assert.ok(orchestrator.timers.has(id));
+    assert.ok(!orchestrator.timers.has(done));
+    assert.equal(orchestrator.inFlightCount(), 1);
   });
 
   it('completes research, saves verified, sets notifyPending after verification', async () => {
