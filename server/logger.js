@@ -11,7 +11,8 @@ function redact(value) {
   if (value == null) return value;
   if (typeof value === 'string') {
     return value
-      .replace(/YDC_API_KEY\s*=\s*[^\s&]+/gi, 'YDC_API_KEY=***')
+      .replace(/\b([A-Z][A-Z0-9]*_API_KEY)\s*=\s*[^\s&]+/gi, '$1=***')
+      .replace(/\b(tvly-|keen_|jina_)[A-Za-z0-9_\-]{8,}/g, '$1***')
       .replace(/X-API-Key["\s:]+[A-Za-z0-9_\-]+/gi, 'X-API-Key: ***')
       .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer ***')
       .replace(/api[_-]?key["\s:=]+[A-Za-z0-9_\-]{8,}/gi, 'api_key=***');

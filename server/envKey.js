@@ -58,38 +58,42 @@ function writeEnvFile(map) {
   fs.writeFileSync(ENV_PATH, lines.join('\n') + (lines.length ? '\n' : ''), 'utf8');
 }
 
-function getKey() {
+// Each provider keeps its key under its own name in the same .env; the default is You.com's.
+function getKey(name = KEY_NAME) {
   const map = readEnvFile();
-  const fromFile = map[KEY_NAME];
+  const fromFile = map[name];
   if (fromFile) return fromFile;
-  return process.env[KEY_NAME] || '';
+  return process.env[name] || '';
 }
 
-function hasKey() {
-  return Boolean(getKey());
+function hasKey(name = KEY_NAME) {
+  return Boolean(getKey(name));
 }
 
-function setKey(value) {
+function setKey(value, name = KEY_NAME) {
   if (!value || typeof value !== 'string' || !value.trim()) {
     throw new Error('API key must be a non-empty string');
   }
+  // One line in .env: a key with spaces or line breaks in it was pasted wrong.
+  if (/\s/.test(value.trim())) throw new Error("API key can't contain spaces or line breaks");
   const map = readEnvFile();
-  map[KEY_NAME] = value.trim();
+  map[name] = value.trim();
   writeEnvFile(map);
-  process.env[KEY_NAME] = value.trim();
+  process.env[name] = value.trim();
   return { present: true };
 }
 
-function deleteKey() {
+function deleteKey(name = KEY_NAME) {
   const map = readEnvFile();
-  delete map[KEY_NAME];
+  delete map[name];
   writeEnvFile(map);
-  delete process.env[KEY_NAME];
+  delete process.env[name];
   return { present: false };
 }
 
-function presence() {
-  return { present: hasKey(), status: hasKey() ? 'KEY SAVED' : 'NO KEY' };
+function presence(name = KEY_NAME) {
+  const present = hasKey(name);
+  return { present, status: present ? 'KEY SAVED' : 'NO KEY' };
 }
 
 function safeError(err) {

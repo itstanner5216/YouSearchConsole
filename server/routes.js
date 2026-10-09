@@ -7,6 +7,7 @@ const envKey = require('./envKey');
 const settings = require('./settings');
 const stateStore = require('./stateStore');
 const orchestrator = require('./orchestrator');
+const providers = require('./providers');
 const presence = require('./presence');
 const { getLogs, log, redact } = require('./logger');
 
@@ -33,6 +34,50 @@ function createRouter() {
     envKey.deleteKey();
     log('info', 'API key deleted', { operation: 'key.delete', outcome: 'ok' });
     res.json(envKey.presence());
+  });
+
+  // --- Research providers (You.com's key also stays at /key) ---
+  router.get('/providers', (_req, res) => {
+    res.json({ providers: providers.list() });
+  });
+
+  function providerFor(req, res) {
+    const p = providers.get(String(req.params.id).toLowerCase());
+    if (!p) res.status(404).json({ error: `Unknown provider "${req.params.id}"` });
+    return p;
+  }
+
+  router.post('/providers/:id/key', (req, res) => {
+    const p = providerFor(req, res);
+    if (!p) return;
+    try {
+      envKey.setKey(req.body && req.body.key, p.keyName);
+      log('info', `${p.name} API key saved`, { operation: 'key.save', outcome: 'ok', details: { provider: p.id } });
+      res.json(envKey.presence(p.keyName));
+    } catch (err) {
+      res.status(400).json({ error: envKey.safeError(err) });
+    }
+  });
+
+  router.delete('/providers/:id/key', (req, res) => {
+    const p = providerFor(req, res);
+    if (!p) return;
+    envKey.deleteKey(p.keyName);
+    log('info', `${p.name} API key deleted`, { operation: 'key.delete', outcome: 'ok', details: { provider: p.id } });
+    res.json(envKey.presence(p.keyName));
+  });
+
+  // One prompt to every provider with a key ("all" or omitted), a chosen group, or one:
+  // providers: ["tavily", "exa:xhigh", { provider: "you", level: "exhaustive" }]
+  router.post('/research', async (req, res) => {
+    try {
+      const { threadId, input, providers: selection } = req.body || {};
+      if (!threadId) return res.status(400).json({ error: 'threadId required' });
+      const result = await orchestrator.research({ threadId, input, providers: selection });
+      res.json({ ...result, state: stateStore.getPublicState() });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: redact(err.message) });
+    }
   });
 
   // --- Settings ---

@@ -14,7 +14,7 @@ const settings = require('./settings');
 const { createRouter } = require('./routes');
 const orchestrator = require('./orchestrator');
 const presence = require('./presence');
-const poller = require('./poller');
+const providers = require('./providers');
 
 const APP_ID = 'you-research-console';
 
@@ -122,7 +122,7 @@ function main() {
     console.log(`You.com Research Console → ${url}`);
   });
 
-  // A job You.com has accepted keeps running there; tracking state is persisted so the next start picks it up.
+  // A job a provider has accepted keeps running there; tracking state is persisted so the next start picks it up.
   function shutdown() {
     log('info', 'shutting down', { operation: 'shutdown' });
     stateStore.persistNow();
@@ -131,8 +131,9 @@ function main() {
   }
 
   // With the window closed, requests still in flight finish first: the report is saved, then the server exits.
-  // The wait never outlasts the tracking failsafe, so a call that hangs can't keep the server up.
-  const MAX_WAIT_MS = poller.FAILSAFE_MS + 60 * 1000;
+  // The wait ends when the last of them is past its own limit (plus a minute to save), so a call that hangs
+  // can't keep the server up; never longer than the longest limit any provider has, counted from the close.
+  const MAX_WAIT_MS = providers.MAX_LIMIT_MS + 60 * 1000;
   let waitTimer = null;
   let waitSince = null;
   function exitWhenDone() {
@@ -147,8 +148,8 @@ function main() {
     if (waitSince === null) {
       waitSince = Date.now();
       log('info', `last window closed — waiting for ${n === 1 ? '1 request' : n + ' requests'} to finish before exiting`, { operation: 'shutdown' });
-    } else if (Date.now() - waitSince >= MAX_WAIT_MS) {
-      log('error', `exiting with ${n === 1 ? '1 request' : n + ' requests'} still unfinished after ${Math.round(MAX_WAIT_MS / 60000)} minutes`, { operation: 'shutdown' });
+    } else if (Date.now() >= Math.min(waitSince + MAX_WAIT_MS, orchestrator.inFlightDeadline())) {
+      log('error', `exiting with ${n === 1 ? '1 request' : n + ' requests'} still unfinished past ${n === 1 ? 'its' : 'their'} time limit`, { operation: 'shutdown' });
       shutdown();
       return;
     }

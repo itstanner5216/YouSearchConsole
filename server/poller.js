@@ -9,8 +9,10 @@
  * 6–15 min:  30s
  * ≥15 min:   failsafe → one last check, then FAILED
  *
- * A job sent to You.com can't be stopped, so tracking never pauses; it ends
- * when You.com answers or at the failsafe: a result not in by 15 minutes isn't coming.
+ * A job sent to a provider can't be stopped, so tracking never pauses; it ends
+ * when the provider answers or at the failsafe: a result not in by 15 minutes isn't coming.
+ * A provider level documented to run longer (TinyFish deep, up to 20 min) passes its own
+ * failsafe; past the table the last interval (30s) continues until then.
  */
 
 const SCHEDULE = [
@@ -25,21 +27,17 @@ const FAILSAFE_MS = 15 * 60 * 1000;
  * @param {number} elapsedMs
  * @returns {{ intervalMs: number, exhausted: boolean, phase: string }}
  */
-function getInterval(elapsedMs) {
+function getInterval(elapsedMs, failsafeMs = FAILSAFE_MS) {
   const e = Math.max(0, Number(elapsedMs) || 0);
-  if (e >= FAILSAFE_MS) {
+  if (e >= failsafeMs) {
     return { intervalMs: 0, exhausted: true, phase: 'failsafe' };
   }
-  for (const row of SCHEDULE) {
-    if (e < row.untilMs) {
-      return {
-        intervalMs: row.intervalMs,
-        exhausted: false,
-        phase: `${row.intervalMs / 1000}s`,
-      };
-    }
-  }
-  return { intervalMs: 0, exhausted: true, phase: 'failsafe' };
+  const row = SCHEDULE.find((r) => e < r.untilMs) || SCHEDULE[SCHEDULE.length - 1];
+  return {
+    intervalMs: row.intervalMs,
+    exhausted: false,
+    phase: `${row.intervalMs / 1000}s`,
+  };
 }
 
 /**
@@ -47,12 +45,13 @@ function getInterval(elapsedMs) {
  * @param {number|string|Date} submittedAt
  * @param {number} [nowMs]
  * @param {number} [lastCheckAtMs] — when the last poll happened; next check = last + interval
+ * @param {number} [failsafeMs] — this request's tracking limit
  */
-function computeSchedule(submittedAt, nowMs = Date.now(), lastCheckAtMs = null) {
+function computeSchedule(submittedAt, nowMs = Date.now(), lastCheckAtMs = null, failsafeMs = FAILSAFE_MS) {
   const submitted = new Date(submittedAt).getTime();
   const now = nowMs;
   const elapsedMs = Math.max(0, now - submitted);
-  const { intervalMs, exhausted, phase } = getInterval(elapsedMs);
+  const { intervalMs, exhausted, phase } = getInterval(elapsedMs, failsafeMs);
 
   let nextCheckMs = 0;
   if (!exhausted && intervalMs > 0) {
@@ -71,7 +70,7 @@ function computeSchedule(submittedAt, nowMs = Date.now(), lastCheckAtMs = null) 
     nextCheckLabel: exhausted ? '—' : formatCountdown(nextCheckMs),
     exhausted,
     phase,
-    failsafeMs: FAILSAFE_MS,
+    failsafeMs,
   };
 }
 

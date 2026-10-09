@@ -464,7 +464,13 @@ function createRequest(threadId, fields) {
   const req = {
     id: randomUUID(),
     threadId,
+    // Which provider runs it; mode is that provider's option (You.com: frontier, exhaustive, answers, contents).
+    provider: fields.provider || 'you',
     mode: fields.mode || t.mode,
+    // Requests sent together to several providers share a batchId.
+    batchId: fields.batchId || null,
+    // How long the run may take before it counts as not coming.
+    limitMs: fields.limitMs || null,
     input: fields.input || '',
     urls: fields.urls || [],
     status: fields.status || 'DRAFT',
