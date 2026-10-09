@@ -57,39 +57,27 @@ describe('stateStore threads + restart', () => {
     assert.equal(stateStore.getThread(t.id).requests.length, 1);
   });
 
-  it('restart pauses in-flight tracking without auto-poll', () => {
+  it('restart keeps tracking every job You.com accepted; requests without one fail', () => {
     const t = stateStore.createThread('frontier');
-    const req = stateStore.createRequest(t.id, {
-      mode: 'frontier',
-      input: 'q',
-      status: 'RESEARCHING',
-    });
-    stateStore.updateRequest(req.id, {
-      status: 'RESEARCHING',
-      jobId: 'job-123',
-      trackingActive: true,
-      submittedAt: new Date().toISOString(),
-    });
+    const mk = (status, extra) => {
+      const r = stateStore.createRequest(t.id, { mode: 'frontier', input: 'q', status });
+      stateStore.updateRequest(r.id, { status, ...extra });
+      return r.id;
+    };
+    const tracked = mk('RESEARCHING', { jobId: 'job-1', trackingActive: true, submittedAt: new Date().toISOString() });
+    const legacy = mk('TRACKING PAUSED', { jobId: 'job-2', trackingActive: false, submittedAt: new Date().toISOString() });
+    const noJob = mk('SUBMITTING', {});
+    stateStore.persistNow();
 
-    // Simulate persist + reload logic
-    const raw = stateStore.getRawState();
-    // Manually run the load pause logic
-    for (const th of raw.threads) {
-      for (const r of th.requests) {
-        if (
-          r.jobId &&
-          ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING'].includes(r.status)
-        ) {
-          r.status = 'TRACKING PAUSED';
-          r.trackingActive = false;
-          r.pauseReason = 'app_restart';
-        }
-      }
+    stateStore.load();
+    const r = (id) => stateStore.getRequest(id).request;
+    for (const id of [tracked, legacy]) {
+      assert.equal(r(id).status, 'RESEARCHING');
+      assert.equal(r(id).trackingActive, true);
     }
-    const found = stateStore.getRequest(req.id);
-    assert.equal(found.request.status, 'TRACKING PAUSED');
-    assert.equal(found.request.trackingActive, false);
-    assert.equal(found.request.jobId, 'job-123');
+    assert.equal(r(legacy).jobId, 'job-2');
+    assert.equal(r(noJob).status, 'FAILED');
+    assert.equal(r(noJob).error.message, 'The app stopped before the API answered, so the result never arrived.');
   });
 
   describe('thread titles', () => {
@@ -174,6 +162,17 @@ describe('stateStore threads + restart', () => {
       const t = stateStore.createThread('frontier');
       stateStore.createRequest(t.id, { input: AGENTGATEWAY_PROMPT });
       assert.equal(stateStore.getThread(t.id).title, 'Current stable Agentgateway release');
+    });
+
+    it('titles a Contents thread from its URLs', () => {
+      const t = stateStore.createThread('contents');
+      stateStore.createRequest(t.id, { mode: 'contents', input: '', urls: ['https://docs.example.com/a', 'https://x.org/b'] });
+      assert.equal(stateStore.getThread(t.id).title, 'docs.example.com +1');
+    });
+
+    it('titles from the prose around a code block, not the code', () => {
+      assert.equal(stateStore.titleFromPrompt('```js\nconst x = [].reduce((a, b) => a + b);\n```\nWhy does reduce return NaN here?'), 'Reduce return NaN here');
+      assert.equal(stateStore.titleFromPrompt('```\nOnly code here\n```'), 'Only code here');
     });
   });
 });

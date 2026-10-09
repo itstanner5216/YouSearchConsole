@@ -231,7 +231,6 @@ html, body {
 .dot.teal { background: var(--teal); }
 .dot.red { background: var(--red); animation: pulse 1.2s ease-in-out infinite; }
 .dot.maroon { background: var(--error-text); }
-.dot.paused { background: transparent; border: 1px solid var(--label); }
 .thread-meta { min-width: 0; }
 .thread-title {
   color: var(--text);

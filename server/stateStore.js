@@ -54,7 +54,6 @@ const STATES = Object.freeze([
   'SAVED · VERIFIED',
   'RECEIVED · SAVE FAILED',
   'FAILED',
-  'TRACKING PAUSED',
 ]);
 
 /** @type {object} */
@@ -90,17 +89,17 @@ function load() {
       activeThreadId: raw.activeThreadId || null,
       lruOrder: Array.isArray(raw.lruOrder) ? raw.lruOrder : [],
     };
-    // On restart: any in-flight research → TRACKING PAUSED, no auto-poll
+    // On restart: a job You.com accepted can't be stopped, so tracking picks it up again
+    // (the orchestrator polls it on startup). Older data may still hold TRACKING PAUSED.
     for (const t of state.threads) {
       if (!t.requests) t.requests = [];
       for (const r of t.requests) {
         if (
           r.jobId &&
-          ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING'].includes(r.status)
+          ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'TRACKING PAUSED'].includes(r.status)
         ) {
-          r.status = 'TRACKING PAUSED';
-          r.trackingActive = false;
-          r.pauseReason = 'app_restart';
+          r.status = 'RESEARCHING';
+          r.trackingActive = true;
         } else if (['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'].includes(r.status)) {
           // Nothing can pick these up after a restart; leaving them "running" would hold the thread forever.
           const hasReport = !!(r.content || (r.contentsPages && r.contentsPages.length));
@@ -112,7 +111,7 @@ function load() {
             status: null,
             message: hasReport
               ? 'The app stopped while saving the report. Use Save again to write it to disk.'
-              : 'The app stopped before the API answered, so no job was started.',
+              : 'The app stopped before the API answered, so the result never arrived.',
             timestamp: new Date().toISOString(),
             jobId: r.jobId || null,
           };
@@ -127,10 +126,13 @@ function load() {
       if (!state.lruOrder.includes(t.id)) state.lruOrder.push(t.id);
     }
     // Re-title auto-titled threads (title still equals the old truncation) with the current rule;
-    // hand-renamed threads and 'New Thread' never match and are left alone.
+    // hand-renamed threads never match and are left alone. Contents threads were never titled,
+    // so a 'New Thread' that has sent something is named from its URLs.
     for (const t of state.threads) {
       const first = t.requests.find((r) => r.input);
       if (first && t.title === legacyTitleFromPrompt(first.input)) t.title = titleFromPrompt(first.input);
+      const sent = t.requests.find((r) => titleSource(r));
+      if (t.title === 'New Thread' && sent) t.title = titleFromPrompt(titleSource(sent));
     }
     persistNow();
   } catch (err) {
@@ -227,6 +229,11 @@ function titleKey(token) {
     .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
 }
 
+// What a thread is titled from: the query, or for Contents the URLs.
+function titleSource(req) {
+  return req.input || (req.urls || []).join('\n');
+}
+
 /** Strips markdown/markup from one line, leaving plain text. Code-fence lines become ''. */
 function stripMarkupLine(line) {
   if (/^\s*(```|~~~)/.test(line)) return '';
@@ -283,12 +290,20 @@ function cleanTitleEdges(s) {
  */
 function titleFromPrompt(prompt) {
   const raw = String(prompt || '');
-  const toks = [];
+  // Code inside a fence names nothing; it is used only when the prompt is all code.
+  const prose = [];
+  const code = [];
+  let fenced = false;
   raw.split(/\r?\n/).forEach((line, li) => {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      return;
+    }
     for (const text of stripMarkupLine(line).split(/\s+/)) {
-      if (text) toks.push({ text, line: li });
+      if (text) (fenced ? code : prose).push({ text, line: li });
     }
   });
+  const toks = prose.length ? prose : code;
   if (!toks.length) return 'Untitled';
 
   let start = toks.findIndex((tk) => {
@@ -396,7 +411,6 @@ function summarizeThread(t) {
 function statusDot(status) {
   if (['SAVED · VERIFIED'].includes(status)) return 'teal';
   if (['FAILED', 'RECEIVED · SAVE FAILED'].includes(status)) return 'maroon';
-  if (['TRACKING PAUSED'].includes(status)) return 'paused';
   if (
     ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'].includes(
       status
@@ -458,7 +472,6 @@ function createRequest(threadId, fields) {
     submittedAt: null,
     lastCheckAt: null,
     trackingActive: false,
-    pauseReason: null,
     content: null,
     contentsPages: null,
     rawResponse: null,
@@ -470,8 +483,8 @@ function createRequest(threadId, fields) {
     updatedAt: new Date().toISOString(),
   };
   t.requests.push(req);
-  if (t.title === 'New Thread' && req.input) {
-    t.title = titleFromPrompt(req.input);
+  if (t.title === 'New Thread' && titleSource(req)) {
+    t.title = titleFromPrompt(titleSource(req));
   }
   t.updatedAt = new Date().toISOString();
   touchLru(threadId);

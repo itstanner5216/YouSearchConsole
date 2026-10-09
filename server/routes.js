@@ -151,21 +151,6 @@ function createRouter() {
     }
   });
 
-  router.post('/tracking/:requestId/stop', (req, res) => {
-    const request = orchestrator.pauseTracking(req.params.requestId, 'user_stop');
-    if (!request) return res.status(404).json({ error: 'Request not found' });
-    res.json({ request, state: stateStore.getPublicState() });
-  });
-
-  router.post('/tracking/:requestId/resume', (req, res) => {
-    try {
-      const request = orchestrator.resumeTracking(req.params.requestId);
-      res.json({ request, state: stateStore.getPublicState() });
-    } catch (err) {
-      res.status(err.status || 400).json({ error: err.message });
-    }
-  });
-
   router.post('/save-again/:requestId', async (req, res) => {
     try {
       const request = await orchestrator.saveAgain(req.params.requestId);

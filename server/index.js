@@ -14,6 +14,7 @@ const settings = require('./settings');
 const { createRouter } = require('./routes');
 const orchestrator = require('./orchestrator');
 const presence = require('./presence');
+const poller = require('./poller');
 
 const APP_ID = 'you-research-console';
 
@@ -102,6 +103,7 @@ function main() {
   settings.load();
   stateStore.load();
   seedDemoIfEmpty();
+  orchestrator.trackInFlight();
 
   const app = express();
   app.use(express.json({ limit: '4mb' }));
@@ -120,16 +122,41 @@ function main() {
     console.log(`You.com Research Console → ${url}`);
   });
 
+  // A job You.com has accepted keeps running there; tracking state is persisted so the next start picks it up.
   function shutdown() {
-    log('info', 'shutting down — pausing tracking', { operation: 'shutdown' });
-    orchestrator.stopAllTracking();
+    log('info', 'shutting down', { operation: 'shutdown' });
     stateStore.persistNow();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 2000).unref();
   }
+
+  // With the window closed, requests still in flight finish first: the report is saved, then the server exits.
+  // The wait never outlasts the tracking failsafe, so a call that hangs can't keep the server up.
+  const MAX_WAIT_MS = poller.FAILSAFE_MS + 60 * 1000;
+  let waitTimer = null;
+  let waitSince = null;
+  function exitWhenDone() {
+    clearTimeout(waitTimer);
+    if (presence.open > 0) return; // a window came back
+    const n = orchestrator.inFlightCount();
+    if (n === 0) {
+      log('info', 'last window closed — exiting', { operation: 'shutdown' });
+      shutdown();
+      return;
+    }
+    if (waitSince === null) {
+      waitSince = Date.now();
+      log('info', `last window closed — waiting for ${n === 1 ? '1 request' : n + ' requests'} to finish before exiting`, { operation: 'shutdown' });
+    } else if (Date.now() - waitSince >= MAX_WAIT_MS) {
+      log('error', `exiting with ${n === 1 ? '1 request' : n + ' requests'} still unfinished after ${Math.round(MAX_WAIT_MS / 60000)} minutes`, { operation: 'shutdown' });
+      shutdown();
+      return;
+    }
+    waitTimer = setTimeout(exitWhenDone, 5000);
+  }
   presence.start(() => {
-    log('info', 'last window closed — exiting', { operation: 'shutdown' });
-    shutdown();
+    waitSince = null;
+    exitWhenDone();
   });
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

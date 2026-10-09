@@ -4,16 +4,19 @@
  * Single scheduling function for research polling.
  * Elapsed is measured from successful submission (ms).
  *
- * 0–3 min:  30s
- * 3–6 min:  15s
- * 6–15 min: 5s
- * ≥15 min:  failsafe → TRACKING PAUSED
+ * 0–3 min:   30s
+ * 3–6 min:   15s (Frontier's median run is about 5 min)
+ * 6–15 min:  30s
+ * ≥15 min:   failsafe → one last check, then FAILED
+ *
+ * A job sent to You.com can't be stopped, so tracking never pauses; it ends
+ * when You.com answers or at the failsafe: a result not in by 15 minutes isn't coming.
  */
 
 const SCHEDULE = [
   { untilMs: 3 * 60 * 1000, intervalMs: 30 * 1000 },
   { untilMs: 6 * 60 * 1000, intervalMs: 15 * 1000 },
-  { untilMs: 15 * 60 * 1000, intervalMs: 5 * 1000 },
+  { untilMs: 15 * 60 * 1000, intervalMs: 30 * 1000 },
 ];
 
 const FAILSAFE_MS = 15 * 60 * 1000;

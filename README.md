@@ -33,7 +33,7 @@ npm ci --omit=dev
 scripts/install-desktop.sh      # adds "You Research Console" to the app menu and `you-research` to ~/.local/bin
 ```
 
-Launching opens the console in its own window (Chrome, Chromium, Brave or Edge in app mode; otherwise the default browser). The launcher starts the server if it isn't already running and reuses it if it is. The server shuts itself down about 10 seconds after the last window closes, so a reload doesn't stop it. Installed launches start with no sample report.
+Launching opens the console in its own window (Chrome, Chromium, Brave or Edge in app mode; otherwise the default browser). The launcher starts the server if it isn't already running and reuses it if it is. The server shuts itself down about 10 seconds after the last window closes, so a reload doesn't stop it. If research is still running then, it waits until the report is saved to the output directory (or the 15-minute limit passes) before exiting. Installed launches start with no sample report.
 
 - `YDC_PORT`: port to use (default 3847)
 - `YDC_BROWSER`: browser command to use for the window
@@ -55,7 +55,7 @@ When started with `npm start` on empty state, a sample **SAVED · VERIFIED** Fro
 
 ### Settings UI
 
-1. **API KEY** — Save/Replace or Delete (confirm). UI only sees `KEY SAVED` / `NO KEY`.
+1. **API KEY** — Save/Replace or Delete. UI only sees `KEY SAVED` / `NO KEY`.
 2. **OUTPUT DIRECTORY** — absolute path; backend creates it when possible and reports `WRITABLE` or the OS error.
 3. **NOTIFICATIONS** — request browser permission; notifications fire **after** disk verification.
 
@@ -78,9 +78,9 @@ From successful submission:
 | --- | --- |
 | 0–3 min | 30 s |
 | 3–6 min | 15 s |
-| 6–15 min | 5 s |
+| 6–15 min | 30 s |
 
-At **15 minutes** or app close → `TRACKING PAUSED` (job ID kept). **Resume Tracking** / **Stop Local Polling** available. On restart, in-flight jobs load as `TRACKING PAUSED` with **no automatic polling**.
+A job sent to You.com can't be stopped, so tracking never pauses: it keeps polling until You.com answers, then saves the report. Closing the window doesn't stop it, and a restarted server picks up every job still in flight. At **15 minutes** the app makes one last check; if the report still isn't there, the request is marked `FAILED` and tracking ends.
 
 Filenames (local time at write): `MM-DD:HHMM.SS.md` or `MM-DD:HHMM.SS-01.md`.
 
@@ -107,14 +107,13 @@ Documented against the confirmed contract and `docs/api_notes.txt`:
 - `GET /api/state` · `GET /api/events` (SSE)
 - `GET|POST /api/threads` · `PATCH|DELETE /api/threads/:id` · `POST …/activate`
 - `POST /api/submit`
-- `POST /api/tracking/:requestId/stop|resume`
 - `POST /api/save-again/:requestId`
 - `GET /api/logs`
 - `POST /api/open-path`
 
 ## State words (exact)
 
-`DRAFT` · `SUBMITTING` · `SUBMITTED` · `RESEARCHING` · `RECEIVING` · `RECEIVED` · `SAVING` · `SAVED · VERIFIED` · `RECEIVED · SAVE FAILED` · `FAILED` · `TRACKING PAUSED`
+`DRAFT` · `SUBMITTING` · `SUBMITTED` · `RESEARCHING` · `RECEIVING` · `RECEIVED` · `SAVING` · `SAVED · VERIFIED` · `RECEIVED · SAVE FAILED` · `FAILED`
 
 ## License
 

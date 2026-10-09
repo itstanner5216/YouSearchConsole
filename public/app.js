@@ -227,15 +227,7 @@ function renderMeta() {
   const req = latestRequest(state.activeThread);
   const meta = $('#meta');
   meta.classList.toggle('hidden', !req?.error);
-  if (!req) {
-    $('#btn-stop').classList.add('hidden');
-    $('#btn-resume').classList.add('hidden');
-    return;
-  }
-
-  const running = RUNNING.includes(req.status);
-  $('#btn-stop').classList.toggle('hidden', !(running && req.jobId && req.trackingActive));
-  $('#btn-resume').classList.toggle('hidden', !(req.status === 'TRACKING PAUSED' && req.jobId));
+  if (!req) return;
 
   // Error: what happened, what was attempted, and the one action that helps.
   const errBox = $('#meta-error');
@@ -391,8 +383,6 @@ function fillTurnReport(el, r, isLatest) {
     let line = '';
     if (r.status === 'FAILED') {
       line = isLatest ? 'No report. The error is shown above.' : [r.error?.title, r.error?.message].filter(Boolean).join(': ') || 'No report.';
-    } else if (r.status === 'TRACKING PAUSED') {
-      line = isLatest ? 'Tracking is paused. Resume tracking to fetch the report.' : 'Tracking was paused before the report arrived.';
     } else if (!RUNNING.includes(r.status)) {
       line = 'No report.';
     }
@@ -586,6 +576,7 @@ async function submit() {
 
   // The query moves into the thread as soon as it is sent; it comes back only if sending fails.
   const field = draftField(mode);
+  let threadId = state.activeThreadId;
   submitting = true;
   $('#prompt').value = '';
   fitPrompt();
@@ -594,40 +585,58 @@ async function submit() {
   try {
     clearTimeout(draftTimer);
     pendingDraft = null;
-    if (!state.activeThreadId) {
+    if (!threadId) {
       const created = await api.post('/api/threads', { mode });
+      threadId = created.thread.id;
       applyState(created.state);
+    } else {
+      // Cleared before sending, so anything typed while it sends is kept as the next draft.
+      if (state.activeThread?.id === threadId) state.activeThread[field] = '';
+      await api.patch(`/api/threads/${threadId}`, { [field]: '' });
     }
-    const threadId = state.activeThreadId;
     const r = await api.post('/api/submit', { threadId, mode, input: mode === 'contents' ? '' : raw, urls });
-    // The API can turn a submission down and still answer 200: the request comes back FAILED with the reason.
-    const rejected = !!(r.request && r.request.status === 'FAILED');
-    const cleared = !rejected && !$('#prompt').value; // nothing new was typed while it was sending
-    if (cleared) {
-      await api.patch(`/api/threads/${threadId}`, { [field]: '' }).catch((err) => showError("Sent, but the draft wasn't cleared", err));
-    }
     submitting = false;
     applyState(r.state);
-    if (cleared && state.activeThread) state.activeThread[field] = '';
-    if (rejected) restoreQuery(raw);
+    // The API can turn a submission down and still answer 200: the request comes back FAILED with the reason.
+    if (r.request && r.request.status === 'FAILED') await restoreQuery(raw, threadId, field);
     fitPrompt();
     updateHelper();
   } catch (err) {
     submitting = false;
-    restoreQuery(raw);
     renderComposer();
-    setComposerError(err.message || String(err));
+    const here = await restoreQuery(raw, threadId, field);
+    if (here) setComposerError(err.message || String(err));
+    else showError(`Couldn't send the query from "${threadTitle(threadId)}"`, err);
     refreshState().catch(() => {});
   }
 }
 
-// A query that didn't go through comes back to the composer (unless something new was typed) and is saved as the draft.
-function restoreQuery(raw) {
-  if ($('#prompt').value) return;
-  $('#prompt').value = raw;
-  fitPrompt();
-  updateHelper();
-  scheduleDraftSave();
+function threadTitle(id) {
+  return (state.threads || []).find((t) => t.id === id)?.title || 'another thread';
+}
+
+// A query that didn't go through goes back to the thread it was sent from, as its draft, unless
+// something new was typed there. Returns whether that thread is the one in the composer.
+async function restoreQuery(raw, threadId, field) {
+  if (threadId && composerThreadId === threadId && draftField(composerMode) === field) {
+    if (!$('#prompt').value) {
+      $('#prompt').value = raw;
+      fitPrompt();
+      updateHelper();
+      scheduleDraftSave();
+    }
+    return true;
+  }
+  if (!threadId) return false;
+  try {
+    const { thread } = await api.get(`/api/threads/${threadId}`);
+    if (thread[field]) return false;
+    const r = await api.patch(`/api/threads/${threadId}`, { [field]: raw });
+    applyState(r.state);
+  } catch (err) {
+    showError(`The query wasn't put back in "${threadTitle(threadId)}"`, err);
+  }
+  return false;
 }
 
 function maybeNotify() {
@@ -897,18 +906,6 @@ function bindUI() {
   $('#btn-submit').addEventListener('click', submit);
   window.addEventListener('resize', () => { fitPrompt(); syncGutter(); });
 
-  $('#btn-stop').addEventListener('click', async () => {
-    const req = latestRequest(state.activeThread);
-    if (!req) return;
-    const r = await api.post(`/api/tracking/${req.id}/stop`).catch((err) => showError("Couldn't stop tracking", err));
-    if (r) applyState(r.state);
-  });
-  $('#btn-resume').addEventListener('click', async () => {
-    const req = latestRequest(state.activeThread);
-    if (!req) return;
-    const r = await api.post(`/api/tracking/${req.id}/resume`).catch((err) => showError("Couldn't resume tracking", err));
-    if (r) applyState(r.state);
-  });
   $('#btn-err-settings').addEventListener('click', () => {
     const req = latestRequest(state.activeThread);
     openSettings(req?.status === 'RECEIVED · SAVE FAILED' ? 'dir-input' : 'key-input');

@@ -27,7 +27,7 @@ Before writing code, read both, list any requested behavior the documented API c
   - `.env` in the project root holds the API key. The backend creates, updates, and deletes it. It is listed in `.gitignore`.
   - `data/settings.json` holds the output directory and other preferences.
   - `data/state.json` (or an equivalent small store) holds threads, requests, job IDs, received content, saved paths, and log history so paid work survives a restart.
-- **State model:** represent every request with named states that match the UI readout words: `DRAFT`, `SUBMITTING`, `SUBMITTED`, `RESEARCHING`, `RECEIVING`, `RECEIVED`, `SAVING`, `SAVED · VERIFIED`, `RECEIVED · SAVE FAILED`, `FAILED`, `TRACKING PAUSED`. Sidebar dots, readouts, logs, and notifications all derive from this one model.
+- **State model:** represent every request with named states that match the UI readout words: `DRAFT`, `SUBMITTING`, `SUBMITTED`, `RESEARCHING`, `RECEIVING`, `RECEIVED`, `SAVING`, `SAVED · VERIFIED`, `RECEIVED · SAVE FAILED`, `FAILED`. Sidebar dots, readouts, logs, and notifications all derive from this one model.
 
 ## API Key
 
@@ -51,9 +51,11 @@ After a research submission succeeds, the backend records the job ID and polls o
 |---|---|
 | 0 – 3 min | every 30 s |
 | 3 – 6 min | every 15 s |
-| 6 – 15 min | every 5 s |
+| 6 – 15 min | every 30 s |
 
-Local tracking ends at 15 minutes (a failsafe in case You.com's own timeout produces no terminal response) or when the app closes. Reaching the end of local tracking changes only the local observer: the request moves to `TRACKING PAUSED`, the job ID stays visible, and **Resume Tracking** continues polling that same job from the appropriate cadence. **Stop Local Polling** does the same thing on demand. On restart, persisted threads and job IDs load into the sidebar exactly as they were, with any in-flight jobs shown as `TRACKING PAUSED` and Resume Tracking available; nothing polls until the user asks.
+A job You.com has accepted can't be stopped from here, so local tracking never pauses and offers no stop or resume control. It runs until You.com reports a terminal status, then the result is received and saved. Closing the window doesn't end it: the server stays up until every in-flight request has been saved or has failed, then exits; it never waits past the failsafe. On restart, persisted threads and job IDs load into the sidebar exactly as they were, and any job still in flight resumes polling automatically on the same schedule. Polling is a free status check; it never starts paid work.
+
+Tracking ends early only when it can't succeed: You.com rejects the key (401/403) or no longer knows the job (404), and the request moves to `FAILED` with that reason. Other poll errors are retried on the schedule. A failsafe at 15 minutes makes one last check; a result that hasn't arrived by then isn't waited for, and the request moves to `FAILED` with the last status You.com reported.
 
 The readout shows live `ELAPSED`, `INTERVAL`, and `NEXT CHECK` values computed from a single scheduling function so the UI and the actual timer agree.
 
@@ -98,7 +100,7 @@ Show the attachment control only in modes whose documented endpoint accepts file
 
 ## Errors
 
-Surface You.com's actual HTTP status and message (credentials redacted) in the readout and error block, along with operation, timestamp, and job ID. Distinguish submission failure, background job failure, local tracking pause, filesystem failure, and notification failure, each paired with its recovery action as defined in the UI instructions.
+Surface You.com's actual HTTP status and message (credentials redacted) in the readout and error block, along with operation, timestamp, and job ID. Distinguish submission failure, background job failure, tracking timeout, filesystem failure, and notification failure, each paired with its recovery action as defined in the UI instructions.
 
 ## Threads
 
@@ -106,7 +108,7 @@ Threads work like contemporary AI chat clients: one active request per thread, u
 
 ## Logging
 
-The backend emits structured entries (timestamp, severity, thread, job ID, operation, outcome, safe details) for: startup, settings changes, submissions, job-ID receipt, each poll, API state changes, content receipt, write attempts, verification, notifications, tracking pause/resume, and errors. The frontend renders them in the log drawer with the color mapping from the UI instructions.
+The backend emits structured entries (timestamp, severity, thread, job ID, operation, outcome, safe details) for: startup, settings changes, submissions, job-ID receipt, each poll, API state changes, content receipt, write attempts, verification, notifications, tracking resumed after a restart, tracking timeout, and errors. The frontend renders them in the log drawer with the color mapping from the UI instructions.
 
 ## Scope Boundaries
 
@@ -117,7 +119,7 @@ The app is single-user and local. Usage, cost, and billing displays stay with Yo
 - Runnable project with `npm install` / `npm start` on current Ubuntu/Debian, with the required Node version stated.
 - README covering setup, where `.env` / `data/` live, notification permission, and any API capabilities that could not be implemented as requested.
 - `.env.example` and `.gitignore`.
-- Automated coverage for: key save/replace/delete; secret redaction; request construction per mode; polling interval transitions and the 15-minute failsafe; Stop/Resume Tracking against an existing job ID; byte-for-byte Markdown preservation; structured-response extraction; atomic write, verification, and Save Again; timestamp filenames and `-01/-02` suffixes; 20-thread retention and 21st-thread eviction leaving disk untouched; notification timing after verification; state restoration on restart with no automatic polling.
+- Automated coverage for: key save/replace/delete; secret redaction; request construction per mode; polling interval transitions and the 15-minute failsafe; tracking that never pauses and ends only on a terminal status, an unrecoverable poll error, or the failsafe; byte-for-byte Markdown preservation; structured-response extraction; atomic write, verification, and Save Again; timestamp filenames and `-01/-02` suffixes; 20-thread retention and 21st-thread eviction leaving disk untouched; notification timing after verification; state restoration on restart with in-flight jobs resuming their polling.
 
 ## Visual identity (derived from an ROG-style Conky system monitor)
 
@@ -166,7 +168,7 @@ The look is a dark, high-contrast, information-dense Linux desktop monitor rende
 
 A full-height CSS Grid with two regions and a docked composer:
 
-**Left — Thread sidebar (compact, charcoal-bordered).** Contains the bracketed app title, a New Thread button, the 20 most recently used threads, and Settings at the bottom. Each thread row shows: editable title (truncated with tooltip), mode tag in mono, concise timestamp, and a status dot — gray idle, red running, teal saved-and-verified, maroon failed, gray-outlined paused. The selected thread carries a narrow red left edge. Least-recently-used ordering; the 21st thread simply drops the oldest row from the list, leaving all files on disk exactly as they are.
+**Left — Thread sidebar (compact, charcoal-bordered).** Contains the bracketed app title, a New Thread button, the 20 most recently used threads, and Settings at the bottom. Each thread row shows: editable title (truncated with tooltip), mode tag in mono, concise timestamp, and a status dot — gray idle, red running, teal saved-and-verified, maroon failed. The selected thread carries a narrow red left edge. Least-recently-used ordering; the 21st thread simply drops the oldest row from the list, leaving all files on disk exactly as they are.
 
 **Center — Workspace.** From top to bottom: a compact thread header (title, mode tag, current status word); the request timeline for that thread; the report reader; the composer docked at the bottom.
 
@@ -197,7 +199,7 @@ JOB ID        ▸ (expandable)
 OUTPUT        —
 ```
 
-Polling cadence follows the spec exactly — 30s for the first 3 minutes, 15s until 6 minutes, 5s thereafter, with local tracking ending at 15 minutes or app close — and the readout displays the live interval and countdown. An indeterminate red activity indicator (respecting `prefers-reduced-motion`) runs while the API reports work in progress. A **Stop Local Polling** control sits beside the readout; when tracking is stopped or the 15-minute window ends, the readout shows `STATUS  TRACKING PAUSED`, keeps the job ID visible, and offers **Resume Tracking**, which continues observing that same job. When the API streams partial content, it renders incrementally in the reader; otherwise the readout alone changes.
+Polling cadence follows the spec exactly — 30s for the first 3 minutes, 15s until 6 minutes, 30s until 15 minutes, when a failsafe makes one last check and ends tracking — and the readout displays the live interval and countdown. An indeterminate red activity indicator (respecting `prefers-reduced-motion`) runs while the API reports work in progress. When the API streams partial content, it renders incrementally in the reader; otherwise the readout alone changes.
 
 ## Report reader
 
@@ -223,11 +225,11 @@ A focused panel (or modal) with three groups, each using the same readout aesthe
 
 ## Errors as first-class states
 
-Errors render in the readout and in a maroon-bordered block beneath the affected request, with white text: title, operation, You.com's exact status and message (credentials redacted), timestamp, job ID, an expandable details area, and the relevant action — Edit API Key, Change Directory, Save Again, Copy Markdown, Resume Tracking, or Remove Attachment. When the API succeeds and the disk write fails, the report stays fully visible in the reader with `STATUS  RECEIVED · SAVE FAILED` and Save Again alongside it.
+Errors render in the readout and in a maroon-bordered block beneath the affected request, with white text: title, operation, You.com's exact status and message (credentials redacted), timestamp, job ID, an expandable details area, and the relevant action — Edit API Key, Change Directory, Save Again, Copy Markdown, or Remove Attachment. When the API succeeds and the disk write fails, the report stays fully visible in the reader with `STATUS  RECEIVED · SAVE FAILED` and Save Again alongside it.
 
 ## Log drawer
 
-Compact mono rows: gray timestamp, severity glyph, thread tag, message. Gray for routine events, blue for API/Contents information, red for state transitions, teal for verified saves, maroon for failures. Text-selectable, filterable, auto-scrolls while pinned to the bottom, holds position when the user scrolls up. Logged events include settings changes, submissions, job-ID receipt, each poll, API state changes, content receipt, write attempts, verification, notifications, tracking pause/resume, and errors.
+Compact mono rows: gray timestamp, severity glyph, thread tag, message. Gray for routine events, blue for API/Contents information, red for state transitions, teal for verified saves, maroon for failures. Text-selectable, filterable, auto-scrolls while pinned to the bottom, holds position when the user scrolls up. Logged events include settings changes, submissions, job-ID receipt, each poll, API state changes, content receipt, write attempts, verification, notifications, tracking resumed after a restart, tracking timeout, and errors.
 
 ## Empty states
 
@@ -239,7 +241,7 @@ Semantic landmarks, full keyboard operability, visible red (blue in Contents fie
 
 ## Definition of done (UI)
 
-Open the app fresh and, without guidance: configure a key and directory; create, rename, and switch threads; tell all four modes apart at a glance; submit a Frontier job and watch a truthful readout with the correct cadence; switch threads while it runs and see its red dot in the sidebar; receive the report, see `SAVED · VERIFIED` in teal, the blue path, and a browser notification; read a long report with tables, code, and citations comfortably; open the raw view and confirm it matches the file; recover a result after a simulated write failure via Save Again; pause and resume tracking; run everything by keyboard; and use it at a narrow width. Finish with a visual pass confirming the palette reads as black / white / gray / red line-work with blue, teal, and maroon appearing only where they mean something.
+Open the app fresh and, without guidance: configure a key and directory; create, rename, and switch threads; tell all four modes apart at a glance; submit a Frontier job and watch a truthful readout with the correct cadence; switch threads while it runs and see its red dot in the sidebar; receive the report, see `SAVED · VERIFIED` in teal, the blue path, and a browser notification; read a long report with tables, code, and citations comfortably; open the raw view and confirm it matches the file; recover a result after a simulated write failure via Save Again; close the window while research runs and find the report saved once it finishes; run everything by keyboard; and use it at a narrow width. Finish with a visual pass confirming the palette reads as black / white / gray / red line-work with blue, teal, and maroon appearing only where they mean something.
 
 
 ## Visual Self-Review
@@ -262,7 +264,7 @@ Switching is a normal decision, not a failure: if the primary stumbles twice in 
 - **Palette discipline.** The page reads as near-black ground, white values, gray labels, and red line-work — with blue, teal, and maroon appearing *only* where they carry meaning. Flag any red filling an area rather than ruling or labeling one; any state color appearing decoratively; any color outside the token set.
 - **Structure.** Section headers render as bracketed red rules (`──[ TITLE ]──`), the bracketed title block sits atop the app, and readout columns align vertically down the panel — labels left, values right, monospaced, no ragged drift.
 - **Typography.** Ubuntu Sans for prose and controls, Ubuntu Mono for every value, path, timestamp, and log line. Report body comfortable at its measure; nothing below 12px.
-- **State truthfulness.** Capture each request state and confirm the readout words match the state model: `RESEARCHING` with live `ELAPSED`/`INTERVAL`/`NEXT CHECK`, `TRACKING PAUSED` with the job ID visible and Resume Tracking offered, `SAVED · VERIFIED` in teal with the blue path, `RECEIVED · SAVE FAILED` with the report still readable and Save Again present, `FAILED` in maroon with You.com's actual message.
+- **State truthfulness.** Capture each request state and confirm the readout words match the state model: `RESEARCHING` with live `ELAPSED`/`INTERVAL`/`NEXT CHECK`, `SAVED · VERIFIED` in teal with the blue path, `RECEIVED · SAVE FAILED` with the report still readable and Save Again present, `FAILED` in maroon with You.com's actual message.
 - **Layout stability.** State changes shift text, not neighbors. The readout updating, tabs switching, and the log drawer opening cause no reflow of the report area.
 
 **The required screenshot set** — all of these must pass before the UI is called done (use SnapRender's batch capture for the set when convenient):
@@ -276,7 +278,7 @@ Switching is a normal decision, not a failure: if the primary stumbles twice in 
 7. The log drawer open
 8. Narrow width, confirming the sidebar collapse and stacked readouts
 
-For states a plain screenshot cannot reach — modals, drawers, the confirm dialog — drive them with real interactions: seed state via the app's own data (e.g., a persisted request in `TRACKING PAUSED`), or use SnapRender's interaction options where supported. When neither works, verify the state's logic in code and say so explicitly rather than claiming visual confirmation.
+For states a plain screenshot cannot reach — modals, drawers, the confirm dialog — drive them with real interactions: seed state via the app's own data (e.g., a persisted request still `RESEARCHING`), or use SnapRender's interaction options where supported. When neither works, verify the state's logic in code and say so explicitly rather than claiming visual confirmation.
 
 **Quota discipline.** Both connectors draw from monthly pools shared across the entire project. Check `get-usage` / `get_usage` at the start of each work session, prefer cached or batched captures, and when combined remaining quota runs low, say so and prioritize the required set over incremental checks.
 
