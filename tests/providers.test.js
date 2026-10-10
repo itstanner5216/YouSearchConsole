@@ -193,7 +193,8 @@ describe('providers: Tavily stream', () => {
   it('sends the SDK request, reads lines split across chunks, and lists unlinked sources', async () => {
     key('TAVILY_API_KEY', 'tvly-test-key-0001');
     // 7-byte pieces cut through "data:", JSON, \r\n and a multi-byte character.
-    const text = sse(events);
+    // Live Tavily streams name every chunk `event: chat.completion.chunk`.
+    const text = sse(events).replace(/data: \{/g, 'event: chat.completion.chunk\r\ndata: {');
     const bytes = new TextEncoder().encode(text);
     const fetchFn = router([
       [
