@@ -304,7 +304,7 @@ const tavily = {
     try {
       for await (const { event, data } of sseEvents(res, guard)) {
         // Tavily closes a finished run with `event: done`; a stream that just stops ended early.
-        if (event === 'done' || data === '[DONE]') {
+        if (event === 'done') {
           done = true;
           break;
         }

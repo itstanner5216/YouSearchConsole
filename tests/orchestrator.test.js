@@ -157,6 +157,27 @@ describe('orchestrator tracking + notify timing', () => {
     assert.equal(orchestrator.inFlightCount(), 1);
   });
 
+  it('on startup, work cut off by the stop no longer holds its thread', async () => {
+    const thread = stateStore.createThread('frontier');
+    const make = (fields) => stateStore.createRequest(thread.id, { input: 'q', ...fields }).id;
+    const streaming = make({ provider: 'jina', mode: 'high', status: 'RESEARCHING' });
+    stateStore.updateRequest(streaming, { submittedAt: new Date().toISOString() });
+    const unconfirmed = make({ provider: 'exa', mode: 'high', status: 'SUBMITTING' });
+    const unanswered = make({ provider: 'keenable', mode: 'search', status: 'SUBMITTED' });
+    const arrived = make({ provider: 'tavily', mode: 'pro', status: 'SAVING' });
+    stateStore.updateRequest(arrived, { content: '# Arrived before the stop' });
+
+    orchestrator.trackInFlight();
+    await orchestrator.settle();
+
+    const err = (id) => [current(id).status, current(id).error.title, current(id).error.message];
+    assert.deepEqual(err(streaming), ['FAILED', 'Research interrupted', "The app stopped while Jina's report was streaming in; a streamed run can't be picked up again."]);
+    assert.deepEqual(err(unconfirmed), ['FAILED', 'Research interrupted', "The app stopped before Exa confirmed it had the request, so it can't be picked up again."]);
+    assert.deepEqual(err(unanswered), ['FAILED', 'Research interrupted', "The app stopped before Keenable's answer came in, so this request can't be picked up again."]);
+    assert.equal(current(arrived).status, 'SAVED · VERIFIED');
+    assert.equal(orchestrator.inFlightCount(), 0);
+  });
+
   it('completes research, saves verified, sets notifyPending after verification', async () => {
     const md = '# Report\n\nExact bytes ✨\n';
     youClient.setFetch(
