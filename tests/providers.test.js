@@ -11,6 +11,7 @@ const stateStore = require('../server/stateStore');
 const youClient = require('../server/youClient');
 const providers = require('../server/providers');
 const orchestrator = require('../server/orchestrator');
+const logger = require('../server/logger');
 const { isolateDataDir } = require('./helpers');
 
 const KEY_NAMES = ['YDC_API_KEY', 'TAVILY_API_KEY', 'EXA_API_KEY', 'TINYFISH_API_KEY', 'JINA_API_KEY', 'KEENABLE_API_KEY'];
@@ -161,7 +162,6 @@ describe('providers: choosing who runs', () => {
     assert.deepEqual(list.find((x) => x.id === 'tavily').key, { present: true, status: 'KEY SAVED' });
     assert.deepEqual(tf.key, { present: false, status: 'NO KEY' });
     assert.ok(!JSON.stringify(list).includes('tvly-secret'));
-    assert.equal(providers.MAX_LIMIT_MS, 20 * MIN);
   });
 
   it("rejects a key with spaces or line breaks, which would break the .env file", () => {
@@ -244,10 +244,13 @@ describe('providers: Tavily stream', () => {
     );
     const guard = providers.streamGuard(15 * MIN, 150);
     const keepAlive = setInterval(() => {}, 1000); // the guard's timers are unref'd; a real socket would hold the loop
-    const res = await p('tavily').open('q', 'pro', guard);
-    await assert.rejects(p('tavily').collect(res, guard), { message: "Tavily's stream sent nothing for 0s after 14 characters of the report." });
-    guard.done();
-    clearInterval(keepAlive);
+    try {
+      const res = await p('tavily').open('q', 'pro', guard);
+      await assert.rejects(p('tavily').collect(res, guard), { message: "Tavily's stream sent nothing for 0s after 14 characters of the report." });
+    } finally {
+      guard.done();
+      clearInterval(keepAlive);
+    }
   });
 
   it('a stream past its total limit is stopped', async () => {
@@ -255,10 +258,46 @@ describe('providers: Tavily stream', () => {
     providers.setFetch(router([['POST https://api.tavily.com/research', (_u, opts) => streamRes([], { signal: opts.signal, hang: true })]]));
     const guard = providers.streamGuard(120, 10 * MIN);
     const keepAlive = setInterval(() => {}, 1000);
-    const res = await p('tavily').open('q', 'pro', guard);
-    await assert.rejects(p('tavily').collect(res, guard), { message: "Tavily's stream ran past 0s." });
-    guard.done();
-    clearInterval(keepAlive);
+    try {
+      const res = await p('tavily').open('q', 'pro', guard);
+      await assert.rejects(p('tavily').collect(res, guard), { message: "Tavily's stream ran past 0s." });
+    } finally {
+      guard.done();
+      clearInterval(keepAlive);
+    }
+  });
+
+  async function tavilyRun(body) {
+    providers.setFetch(router([['POST https://api.tavily.com/research', () => streamRes(pieces(body, 9))]]));
+    const guard = providers.streamGuard(15 * MIN);
+    try {
+      const res = await p('tavily').open('q', 'pro', guard);
+      return await p('tavily').collect(res, guard);
+    } finally {
+      guard.done();
+    }
+  }
+
+  it('a stream that closes before "done" fails instead of saving half a report', async () => {
+    key('TAVILY_API_KEY', 'tvly-test-key-0006');
+    await assert.rejects(tavilyRun(sse([chunk({ content: 'Partial report' })])), {
+      message: "Tavily's stream closed before the run finished after 14 characters of the report.",
+    });
+    await assert.rejects(tavilyRun(''), { message: "Tavily's stream closed before the run finished." });
+    // "done" may come as its own event, with or without data, in either field order.
+    for (const end of ['event: done\n\n', 'event: done\ndata: {}\n\n', 'data: {}\nevent: done\n\n', 'event: done']) {
+      const out = await tavilyRun(sse([chunk({ content: 'Whole report' })]) + end);
+      assert.equal(out.content, 'Whole report');
+    }
+  });
+
+  it("an error event is Tavily's own message, JSON or not", async () => {
+    key('TAVILY_API_KEY', 'tvly-test-key-0007');
+    await assert.rejects(tavilyRun(sse([chunk({ content: 'Some' }), { id: 'x', object: 'error', error: 'An error occurred while streaming the research task' }])), {
+      message: 'Tavily reported an error: An error occurred while streaming the research task',
+    });
+    await assert.rejects(tavilyRun('event: error\ndata: Research quota exceeded\n\n'), { message: 'Tavily reported an error: Research quota exceeded' });
+    await assert.rejects(tavilyRun('event: error\n\n'), { message: 'Tavily reported an error: no details given' });
   });
 
   it('a stream that ends without any report text fails', async () => {
@@ -324,7 +363,19 @@ describe('providers: Jina DeepSearch stream', () => {
   });
 
   it('a stream that stops mid-thought fails instead of saving the thinking', async () => {
-    await assert.rejects(run([chunk({ content: '<think>still going' })]), { message: "Jina's stream ended before DeepSearch gave its answer." });
+    await assert.rejects(run([chunk({ content: '<think>still going' })]), { message: "Jina's stream closed before DeepSearch finished." });
+  });
+
+  it("a stream that closes before DeepSearch's last chunk fails with how much had arrived", async () => {
+    await assert.rejects(run([chunk({ content: '<think>hm</think>' }, { finish_reason: 'thinking_end' }), chunk({ content: 'Half an answer' })]), {
+      message: "Jina's stream closed before DeepSearch finished after 14 characters of the report.",
+    });
+  });
+
+  it('a finished run with no answer after the thinking fails', async () => {
+    await assert.rejects(run([chunk({ content: '<think>hm</think>' }, { finish_reason: 'thinking_end' }), chunk({ content: '' }, { finish_reason: 'stop' })]), {
+      message: "Jina's stream ended before DeepSearch gave its answer.",
+    });
   });
 });
 
@@ -379,7 +430,11 @@ describe('providers: Exa and TinyFish runs', () => {
     const fetchFn = router([]);
     providers.setFetch(fetchFn);
     await assert.rejects(p('tinyfish').start('x'.repeat(2001), 'deep'), { status: 400, message: 'TinyFish takes prompts up to 2,000 characters; this one is 2,001.' });
+    // Characters, not UTF-16 units: 2,001 emoji are 4,002 units.
+    await assert.rejects(p('tinyfish').start('🚀'.repeat(2001), 'deep'), { message: 'TinyFish takes prompts up to 2,000 characters; this one is 2,001.' });
     assert.equal(fetchFn.calls.length, 0);
+    providers.setFetch(router([['POST https://agent.tinyfish.ai/v1/automation/run-research-async', () => jsonRes(200, { research_run_id: 'rr_e' })]]));
+    assert.equal((await p('tinyfish').start('🚀'.repeat(2000), 'deep')).jobId, 'rr_e');
   });
 
   it('TinyFish: deep result with URL citations; TIMED_OUT carries its error', async () => {
@@ -495,11 +550,12 @@ describe('orchestrator: research across providers', () => {
     assert.deepEqual(all.requests.map((r) => r.provider), ['keenable']);
 
     const t2 = stateStore.createThread('frontier');
-    const picked = await orchestrator.research({ threadId: t2.id, input: 'q', providers: ['tinyfish', 'keenable'] });
-    const tf = current(picked.requests[0].id);
+    const picked = await orchestrator.research({ threadId: t2.id, input: 'q', providers: ['tinyfish', 'you', 'keenable'] });
+    const [tf, yc] = picked.requests.map((r) => current(r.id));
     assert.equal(tf.status, 'FAILED');
     assert.deepEqual([tf.error.title, tf.error.message, tf.error.status], ['Submission failed', 'No TinyFish API key saved', 401]);
-    assert.equal(current(picked.requests[1].id).status, 'SAVED · VERIFIED');
+    assert.deepEqual([yc.status, yc.error.message, yc.error.status], ['FAILED', 'No You.com API key saved', 401]);
+    assert.equal(current(picked.requests[2].id).status, 'SAVED · VERIFIED');
   });
 
   it('a broken stream fails that provider with the reason, not the batch', async () => {
@@ -529,6 +585,47 @@ describe('orchestrator: research across providers', () => {
     assert.equal(tv.error.title, 'Research failed');
     assert.equal(tv.error.message, "Tavily's stream broke off after 10 characters of the report: terminated");
     assert.equal(current(requests[1].id).status, 'SAVED · VERIFIED');
+  });
+
+  it("a key the provider echoes back mid-stream is masked in the request and the log", async () => {
+    // No known key prefix, so only masking by the saved value can catch it.
+    key('TAVILY_API_KEY', 'plainsecretvalue0014');
+    providers.setFetch(router([['POST https://api.tavily.com/research', () => streamRes([sse([{ object: 'error', error: 'Rejected credential plainsecretvalue0014.' }])])]]));
+    const thread = stateStore.createThread('frontier');
+    const { requests } = await orchestrator.research({ threadId: thread.id, input: 'q', providers: ['tavily'] });
+    await orchestrator.settle();
+    const tv = current(requests[0].id);
+    assert.equal(tv.error.message, 'Tavily reported an error: Rejected credential ***.');
+    assert.ok(!JSON.stringify(stateStore.getRawState()).includes('plainsecretvalue0014'));
+    assert.ok(!JSON.stringify(logger.getLogs()).includes('plainsecretvalue0014'));
+  });
+
+  it('an unexpected error after a stream marks the request failed instead of stopping the server', async () => {
+    key('TAVILY_API_KEY', 'tvly-test-key-0015');
+    providers.setFetch(allProviders());
+    const original = settings.validateOutputDir;
+    settings.validateOutputDir = () => {
+      throw new Error('output folder check blew up');
+    };
+    try {
+      const thread = stateStore.createThread('frontier');
+      const { requests } = await orchestrator.research({ threadId: thread.id, input: 'q', providers: ['tavily'] });
+      await orchestrator.settle();
+      const tv = current(requests[0].id);
+      assert.deepEqual([tv.status, tv.error.title, tv.error.message], ['FAILED', 'Research failed', 'output folder check blew up']);
+    } finally {
+      settings.validateOutputDir = original;
+    }
+  });
+
+  it('a request gone from state by the time its stream ends is let go quietly', async () => {
+    key('TAVILY_API_KEY', 'tvly-test-key-0016');
+    providers.setFetch(router([['POST https://api.tavily.com/research', () => streamRes([sse([chunk({ content: '# Late' }), 'event: done\n'])], { delayMs: 20 })]]));
+    const thread = stateStore.createThread('frontier');
+    await orchestrator.research({ threadId: thread.id, input: 'q', providers: ['tavily'] });
+    stateStore.setRawState({ threads: [], activeThreadId: null, lruOrder: [] });
+    await orchestrator.settle();
+    assert.deepEqual(outFiles(), []);
   });
 
   it('TinyFish deep is tracked to its own 20 minute limit', async () => {
@@ -565,6 +662,10 @@ describe('orchestrator: research across providers', () => {
     const due = (r) => Date.parse(r.submittedAt) + r.limitMs + MIN;
     assert.equal(orchestrator.inFlightDeadline(), due(b));
     stateStore.updateRequest(b.id, { status: 'SAVED · VERIFIED' });
+    assert.equal(orchestrator.inFlightDeadline(), due(a));
+    // A request with no time on record can't hold the server open.
+    const c = at(0, 15 * MIN);
+    stateStore.updateRequest(c.id, { submittedAt: null, createdAt: null });
     assert.equal(orchestrator.inFlightDeadline(), due(a));
   });
 

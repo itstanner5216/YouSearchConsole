@@ -7,7 +7,8 @@
  * kind:
  *   poll   — start returns a job id; the orchestrator checks it on the poller schedule,
  *            so tracking survives a restart (You.com, Exa, TinyFish)
- *   stream — one long request whose report streams in; done when the stream ends (Tavily, Jina)
+ *   stream — one long request whose report streams in; done when the provider marks the end
+ *            (Tavily's `event: done`, Jina's finish_reason 'stop'), not merely when the stream closes
  *   once   — one quick request (Keenable search)
  *
  * Levels list the default first. limitMs is how long a run may take before it counts as
@@ -148,22 +149,41 @@ async function openStream(p, url, body, guard) {
   return res;
 }
 
-/** Yields each SSE `data:` payload. Lines are buffered across network chunks, so none is cut in half. */
-async function* sseData(res, guard) {
+/**
+ * Yields each SSE event as {event, data}: one per `data:` line, named by the event's `event:`
+ * line ('message' when it has none), and one with empty data for an event that is only a name
+ * (Tavily's closing `event: done`). Lines are buffered across network chunks, so none is cut in half.
+ */
+async function* sseEvents(res, guard) {
   const decoder = new TextDecoder();
   let buf = '';
+  let event = '';
+  let data = [];
+  function* dispatch() {
+    const name = event || 'message';
+    if (data.length) for (const d of data) yield { event: name, data: d };
+    else if (event) yield { event: name, data: '' };
+    event = '';
+    data = [];
+  }
+  function* line(text) {
+    if (text === '') yield* dispatch();
+    else if (text.startsWith('event:')) event = text.slice(6).trim();
+    else if (text.startsWith('data:')) data.push(text.slice(5).trim());
+  }
   for await (const chunk of res.body) {
     guard.alive();
     buf += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, nl).replace(/\r$/, '');
+      const text = buf.slice(0, nl).replace(/\r$/, '');
       buf = buf.slice(nl + 1);
-      if (line.startsWith('data:')) yield line.slice(5).trim();
+      yield* line(text);
     }
   }
   buf += decoder.decode();
-  if (buf.startsWith('data:')) yield buf.slice(5).trim();
+  if (buf) yield* line(buf.replace(/\r$/, ''));
+  yield* dispatch();
 }
 
 function parseJson(text) {
@@ -211,10 +231,12 @@ function reported(message) {
   return Object.assign(new Error(message), { reported: true });
 }
 
+const partialOf = (got) => (got ? ` after ${got.toLocaleString('en-US')} characters of the report` : '');
+
 function streamFailure(p, err, guard, got) {
   if (err && err.reported) return new Error(`${p.name} reported an error: ${err.message}`);
   const why = guard.reason();
-  const partial = got ? ` after ${got.toLocaleString('en-US')} characters of the report` : '';
+  const partial = partialOf(got);
   if (why) return new Error(`${p.name}'s stream ${why}${partial}.`);
   if (err && err.status) return err;
   return new Error(`${p.name}'s stream broke off${partial}: ${(err && err.message) || err}`);
@@ -232,6 +254,7 @@ const you = {
     { id: 'exhaustive', label: 'Exhaustive', limitMs: LIMIT },
   ],
   async start(input, level) {
+    keyFor(this); // the same "no key" message as every other provider
     const data = await youClient.submitResearch(input, level);
     return { jobId: data.task_id, raw: data, extra: { streamUrl: data.stream_url || null } };
   },
@@ -276,10 +299,17 @@ const tavily = {
   },
   async collect(res, guard) {
     let report = '';
+    let done = false;
     const sources = sourceList();
     try {
-      for await (const text of sseData(res, guard)) {
-        const ev = parseJson(text);
+      for await (const { event, data } of sseEvents(res, guard)) {
+        // Tavily closes a finished run with `event: done`; a stream that just stops ended early.
+        if (event === 'done' || data === '[DONE]') {
+          done = true;
+          break;
+        }
+        const ev = parseJson(data);
+        if (event === 'error' && !(ev && (ev.error || ev.detail))) throw reported(data || 'no details given');
         if (!ev) continue;
         if (ev.error || ev.detail) throw reported(plainText(ev.error) || plainText(ev.detail) || JSON.stringify(ev.error || ev.detail));
         const delta = (ev.choices && ev.choices[0] && ev.choices[0].delta) || {};
@@ -295,6 +325,7 @@ const tavily = {
     } catch (err) {
       throw streamFailure(this, err, guard, report.length);
     }
+    if (!done) throw new Error(`Tavily's stream closed before the run finished${partialOf(report.length)}.`);
     if (!report.trim()) throw new Error("Tavily's stream ended without a report.");
     return { content: withSources(report, sources.list), sources: sources.list };
   },
@@ -323,11 +354,12 @@ const jina = {
   },
   async collect(res, guard) {
     let text = '';
+    let finished = false;
     const cited = sourceList();
     let read = [];
     let visited = [];
     try {
-      for await (const data of sseData(res, guard)) {
+      for await (const { data } of sseEvents(res, guard)) {
         const ev = parseJson(data);
         if (!ev) continue;
         const choice = (ev.choices && ev.choices[0]) || {};
@@ -339,10 +371,16 @@ const jina = {
         for (const a of delta.annotations || []) if (a && a.url_citation) cited.add(a.url_citation.url, a.url_citation.title);
         if (Array.isArray(ev.readURLs) && ev.readURLs.length) read = ev.readURLs;
         if (Array.isArray(ev.visitedURLs) && ev.visitedURLs.length) visited = ev.visitedURLs;
+        // DeepSearch's last chunk carries the answer with finish_reason 'stop'; a stream that stops before it ended early.
+        if (choice.finish_reason === 'stop') {
+          finished = true;
+          break;
+        }
       }
     } catch (err) {
       throw streamFailure(this, err, guard, answerOf(text).length);
     }
+    if (!finished) throw new Error(`Jina's stream closed before DeepSearch finished${partialOf(answerOf(text).length)}.`);
     // DeepSearch thinks out loud inside <think>…</think>; the report is what follows.
     const answer = answerOf(text);
     if (!answer) throw new Error("Jina's stream ended before DeepSearch gave its answer.");
@@ -417,8 +455,9 @@ const tinyfish = {
   auth: (key) => ({ 'X-API-Key': key }),
   async start(input, level) {
     const query = String(input);
-    if (query.length > 2000) {
-      throw Object.assign(new Error(`TinyFish takes prompts up to 2,000 characters; this one is ${query.length.toLocaleString('en-US')}.`), { status: 400 });
+    const length = [...query].length; // characters, not UTF-16 units: an emoji counts once
+    if (length > 2000) {
+      throw Object.assign(new Error(`TinyFish takes prompts up to 2,000 characters; this one is ${length.toLocaleString('en-US')}.`), { status: 400 });
     }
     // Never retried: TinyFish's async start isn't idempotent, so a retry could start a second paid run.
     const data = await call(this, 'https://agent.tinyfish.ai/v1/automation/run-research-async', {
@@ -498,8 +537,19 @@ function plainText(v) {
 const PROVIDERS = [you, tavily, exa, tinyfish, jina, keenable];
 const BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
 
-// The longest any run may take; the server waits at most this long for runs after the window closes.
-const MAX_LIMIT_MS = Math.max(...PROVIDERS.flatMap((p) => p.levels.map((l) => l.limitMs)));
+/**
+ * Masks every saved provider key in text that came from outside the app (a provider's error,
+ * a message it sent mid-stream), then the usual redaction. Keys shorter than 8 characters
+ * aren't masked by value: replacing them would mangle ordinary words.
+ */
+function scrub(text) {
+  let out = String(text);
+  for (const p of PROVIDERS) {
+    const key = envKey.getKey(p.keyName);
+    if (key && key.length >= 8) out = out.split(key).join('***');
+  }
+  return redact(out);
+}
 
 // Requests saved before providers existed have no provider: they are You.com's.
 function get(id) {
@@ -560,11 +610,11 @@ function resolveSelection(selection) {
 }
 
 module.exports = {
-  MAX_LIMIT_MS,
   get,
   levelOf,
   list,
   resolveSelection,
+  scrub,
   streamGuard,
   setFetch,
   resetFetch,

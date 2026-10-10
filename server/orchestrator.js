@@ -111,13 +111,14 @@ async function submit({ threadId, mode, input, urls }) {
 
     throw Object.assign(new Error(`Unknown mode: ${m}`), { status: 400 });
   } catch (err) {
+    const message = providers.scrub(err.message || String(err));
     stateStore.updateRequest(req.id, {
       status: 'FAILED',
       error: {
         title: 'Submission failed',
         operation: 'submit',
         status: err.status || null,
-        message: err.message || String(err),
+        message,
         timestamp: new Date().toISOString(),
         jobId: null,
       },
@@ -127,7 +128,7 @@ async function submit({ threadId, mode, input, urls }) {
       threadId,
       operation: 'submit',
       outcome: 'failed',
-      details: { message: err.message, status: err.status },
+      details: { message, status: err.status },
     });
     return stateStore.getRequest(req.id).request;
   }
@@ -178,10 +179,16 @@ async function research({ threadId, input, providers: selection } = {}) {
   return { batchId, requests: reqs.map((r) => stateStore.getRequest(r.id).request) };
 }
 
-/** Background work per request (a stream being read); tests wait on it with settle(). */
+/**
+ * Background work per request (a stream being read); tests wait on it with settle(). Nothing
+ * else awaits it, so an unexpected error marks the request failed here instead of escaping
+ * as an unhandled rejection, which would stop the server.
+ */
 const pending = new Map();
 function inBackground(requestId, work) {
-  const run = work.finally(() => pending.delete(requestId));
+  const run = work
+    .catch((err) => fail(requestId, { title: 'Research failed', operation: 'research.stream', status: err.status || null, message: err.message || String(err) }))
+    .finally(() => pending.delete(requestId));
   pending.set(requestId, run);
 }
 async function settle() {
@@ -259,7 +266,9 @@ async function readStream(requestId, p, res, guard) {
 // The report is in: keep it, then write it to disk.
 async function receive(requestId, { content, sources, raw }) {
   clearTimers(requestId);
-  const req = stateStore.getRequest(requestId).request;
+  const found = stateStore.getRequest(requestId);
+  if (!found) return;
+  const req = found.request;
   stateStore.updateRequest(requestId, {
     status: 'RECEIVED',
     trackingActive: false,
@@ -277,9 +286,16 @@ async function receive(requestId, { content, sources, raw }) {
   await saveRequestContent(requestId);
 }
 
+// Error text can come from a provider, so any saved key in it is masked before it's kept or logged.
 function fail(requestId, { title, operation, status, message }) {
   clearTimers(requestId);
-  const req = stateStore.getRequest(requestId).request;
+  message = providers.scrub(message);
+  const found = stateStore.getRequest(requestId);
+  if (!found) {
+    log('error', title, { operation, outcome: 'failed', details: { requestId, message, status, note: 'request no longer in state' } });
+    return;
+  }
+  const req = found.request;
   stateStore.updateRequest(requestId, {
     status: 'FAILED',
     trackingActive: false,
@@ -381,7 +397,7 @@ async function doPoll(requestId) {
     log('error', 'poll transient error — will retry', {
       jobId: req.jobId,
       operation: 'research.poll',
-      details: { provider: p.id, message: err.message },
+      details: { provider: p.id, message: providers.scrub(err.message) },
     });
     pollAgainOrEnd(requestId, `The app couldn't reach ${p.name} for the result within ${limit} of tracking. Last error: ${err.message}`);
   }
@@ -536,7 +552,7 @@ function inFlightDeadline() {
   for (const t of stateStore.getRawState().threads) {
     for (const r of t.requests || []) {
       if (!RUNNING.includes(r.status)) continue;
-      const start = Date.parse(r.submittedAt || r.createdAt) || Date.now();
+      const start = Date.parse(r.submittedAt || r.createdAt) || 0; // no time on record: it doesn't hold the server
       latest = Math.max(latest, start + limitOf(r) + 60 * 1000);
     }
   }

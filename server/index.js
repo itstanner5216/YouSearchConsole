@@ -14,7 +14,6 @@ const settings = require('./settings');
 const { createRouter } = require('./routes');
 const orchestrator = require('./orchestrator');
 const presence = require('./presence');
-const providers = require('./providers');
 
 const APP_ID = 'you-research-console';
 
@@ -132,8 +131,7 @@ function main() {
 
   // With the window closed, requests still in flight finish first: the report is saved, then the server exits.
   // The wait ends when the last of them is past its own limit (plus a minute to save), so a call that hangs
-  // can't keep the server up; never longer than the longest limit any provider has, counted from the close.
-  const MAX_WAIT_MS = providers.MAX_LIMIT_MS + 60 * 1000;
+  // can't keep the server up.
   let waitTimer = null;
   let waitSince = null;
   function exitWhenDone() {
@@ -148,8 +146,9 @@ function main() {
     if (waitSince === null) {
       waitSince = Date.now();
       log('info', `last window closed — waiting for ${n === 1 ? '1 request' : n + ' requests'} to finish before exiting`, { operation: 'shutdown' });
-    } else if (Date.now() >= Math.min(waitSince + MAX_WAIT_MS, orchestrator.inFlightDeadline())) {
-      log('error', `exiting with ${n === 1 ? '1 request' : n + ' requests'} still unfinished past ${n === 1 ? 'its' : 'their'} time limit`, { operation: 'shutdown' });
+    } else if (Date.now() >= orchestrator.inFlightDeadline()) {
+      const waited = Math.round((Date.now() - waitSince) / 60000);
+      log('error', `exiting after waiting ${waited === 1 ? '1 minute' : waited + ' minutes'}: ${n === 1 ? '1 request is' : n + ' requests are'} still unfinished past ${n === 1 ? 'its' : 'their'} time limit`, { operation: 'shutdown' });
       shutdown();
       return;
     }

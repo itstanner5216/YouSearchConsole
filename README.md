@@ -98,7 +98,7 @@ One prompt can go to every provider with a saved key, a chosen group, or one. Ea
 | Jina | `high`, `medium` | streamed (DeepSearch); thinking is dropped | 15 min |
 | Keenable | `search` | one search, saved as a list of results | — |
 
-Polled jobs resume after a restart. A streamed run can't: if the app stops mid-stream, that request becomes `FAILED`. A provider's sources are listed under `## Sources` when its report doesn't already link them.
+Polled jobs resume after a restart. A streamed run can't: if the app stops mid-stream, that request becomes `FAILED`. Reports from the other providers list their sources under `## Sources` when the text doesn't already link them; You.com's report is saved exactly as returned.
 
 ## API capability gaps
 
