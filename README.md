@@ -33,7 +33,7 @@ npm ci --omit=dev
 scripts/install-desktop.sh      # adds "You Research Console" to the app menu and `you-research` to ~/.local/bin
 ```
 
-Launching opens the console in its own window (Chrome, Chromium, Brave or Edge in app mode; otherwise the default browser). The launcher starts the server if it isn't already running and reuses it if it is. The server shuts itself down about 10 seconds after the last window closes, so a reload doesn't stop it. If research is still running then, it waits until the report is saved to the output directory (or the 15-minute limit passes) before exiting. Installed launches start with no sample report.
+Launching opens the console in its own window (Chrome, Chromium, Brave or Edge in app mode; otherwise the default browser). The launcher starts the server if it isn't already running and reuses it if it is. The server shuts itself down about 10 seconds after the last window closes, so a reload doesn't stop it. If research is still running then, it waits until the report is saved to the output directory (or the request's time limit passes) before exiting. Installed launches start with no sample report.
 
 - `YDC_PORT`: port to use (default 3847)
 - `YDC_BROWSER`: browser command to use for the window
@@ -46,6 +46,7 @@ Launching opens the console in its own window (Chrome, Chromium, Brave or Edge i
 | Item | Location |
 | --- | --- |
 | API key | `.env` → `YDC_API_KEY=…` (created/updated/deleted from **Settings**; never sent to the browser) |
+| Other providers' keys | same `.env`: `TAVILY_API_KEY`, `EXA_API_KEY`, `TINYFISH_API_KEY`, `JINA_API_KEY`, `KEENABLE_API_KEY` (set with `POST /api/providers/:id/key`) |
 | Example env | `.env.example` |
 | Preferences | `data/settings.json` (output directory, notification preference) |
 | Threads / jobs / logs | `data/state.json` (survives restart) |
@@ -82,7 +83,22 @@ From successful submission:
 
 A job sent to You.com can't be stopped, so tracking never pauses: it keeps polling until You.com answers, then saves the report. Closing the window doesn't stop it, and a restarted server picks up every job still in flight. At **15 minutes** the app makes one last check; if the report still isn't there, the request is marked `FAILED` and tracking ends.
 
-Filenames (local time at write): `MM-DD:HHMM.SS.md` or `MM-DD:HHMM.SS-01.md`.
+Filenames (local time at write): `MM-DD:HHMM.SS.md` or `MM-DD:HHMM.SS-01.md`; another provider's report carries its id (`MM-DD:HHMM.SS-tavily.md`). A second report in the same second gets `_2` rather than replacing the first.
+
+### Research providers (backend only; not yet in the UI)
+
+One prompt can go to every provider with a saved key, a chosen group, or one. Each provider's run is its own request in the thread, tracked and saved on its own; runs sent together share a `batchId`. Each provider offers at most two options; everything else is fixed.
+
+| Provider | Options (default first) | How it runs | Limit |
+| --- | --- | --- | --- |
+| You.com | `frontier`, `exhaustive` | job, polled | 15 min |
+| Tavily | `pro`, `mini` | streamed (`POST /research`, `stream: true`) | 15 min |
+| Exa | `high`, `xhigh` | job, polled (`/agent/runs`) | 15 min |
+| TinyFish | `deep`, `standard` | job, polled; prompt ≤ 2,000 chars | 20 min deep, 15 standard |
+| Jina | `high`, `medium` | streamed (DeepSearch); thinking is dropped | 15 min |
+| Keenable | `search` | one search, saved as a list of results | — |
+
+Polled jobs resume after a restart. A streamed run can't: if the app stops mid-stream, that request becomes `FAILED`. Reports from the other providers list their sources under `## Sources` when the text doesn't already link them; You.com's report is saved exactly as returned.
 
 ## API capability gaps
 
@@ -107,6 +123,8 @@ Documented against the confirmed contract and `docs/api_notes.txt`:
 - `GET /api/state` · `GET /api/events` (SSE)
 - `GET|POST /api/threads` · `PATCH|DELETE /api/threads/:id` · `POST …/activate`
 - `POST /api/submit`
+- `GET /api/providers` (options, limits, key presence) · `POST|DELETE /api/providers/:id/key`
+- `POST /api/research` `{ threadId, input, providers }`: `providers` is `"all"` (or omitted), or a list like `["tavily", "exa:xhigh", { "provider": "you", "level": "exhaustive" }]`
 - `POST /api/save-again/:requestId`
 - `GET /api/logs`
 - `POST /api/open-path`

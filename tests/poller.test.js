@@ -39,6 +39,16 @@ describe('poller schedule', () => {
     assert.equal(s.exhausted, false);
   });
 
+  it('a longer limit (TinyFish deep, 20 min) keeps the 30s interval past 15 minutes', () => {
+    const MIN = 60 * 1000;
+    assert.deepEqual(poller.getInterval(16 * MIN, 20 * MIN), { intervalMs: 30000, exhausted: false, phase: '30s' });
+    assert.equal(poller.getInterval(20 * MIN, 20 * MIN).exhausted, true);
+    const now = Date.now();
+    const s = poller.computeSchedule(now - 19 * MIN, now, null, 20 * MIN);
+    assert.equal(s.exhausted, false);
+    assert.equal(s.failsafeMs, 20 * MIN);
+  });
+
   it('computeSchedule marks exhausted past failsafe', () => {
     const now = Date.now();
     assert.equal(poller.computeSchedule(now - 14 * 60 * 1000, now, null).exhausted, false);

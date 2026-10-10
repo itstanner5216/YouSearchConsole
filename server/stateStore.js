@@ -111,7 +111,7 @@ function load() {
             status: null,
             message: hasReport
               ? 'The app stopped while saving the report. Use Save again to write it to disk.'
-              : 'The app stopped before the API answered, so the result never arrived.',
+              : 'The app stopped before the result came in, so this request was lost.',
             timestamp: new Date().toISOString(),
             jobId: r.jobId || null,
           };
@@ -397,7 +397,10 @@ function listSidebarThreads() {
 }
 
 function summarizeThread(t) {
-  const latest = t.requests && t.requests.length ? t.requests[t.requests.length - 1] : null;
+  const reqs = t.requests || [];
+  // Requests sent together finish in any order: while any of them runs, that is the thread's status.
+  const running = [...reqs].reverse().find((r) => statusDot(r.status) === 'red');
+  const latest = running || reqs[reqs.length - 1] || null;
   return {
     id: t.id,
     title: t.title,
@@ -464,7 +467,13 @@ function createRequest(threadId, fields) {
   const req = {
     id: randomUUID(),
     threadId,
+    // Which provider runs it; mode is that provider's option (You.com: frontier, exhaustive, answers, contents).
+    provider: fields.provider || 'you',
     mode: fields.mode || t.mode,
+    // Requests sent together to several providers share a batchId.
+    batchId: fields.batchId || null,
+    // How long the run may take before it counts as not coming.
+    limitMs: fields.limitMs || null,
     input: fields.input || '',
     urls: fields.urls || [],
     status: fields.status || 'DRAFT',

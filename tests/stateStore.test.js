@@ -77,7 +77,7 @@ describe('stateStore threads + restart', () => {
     }
     assert.equal(r(legacy).jobId, 'job-2');
     assert.equal(r(noJob).status, 'FAILED');
-    assert.equal(r(noJob).error.message, 'The app stopped before the API answered, so the result never arrived.');
+    assert.equal(r(noJob).error.message, 'The app stopped before the result came in, so this request was lost.');
   });
 
   describe('thread titles', () => {

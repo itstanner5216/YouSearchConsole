@@ -75,4 +75,15 @@ describe('saver', () => {
     assert.notEqual(r1.filename, r2.filename);
     assert.equal(fs.readFileSync(r2.path, 'utf8'), md);
   });
+
+  it('tags other providers in the name, and never replaces a report saved the same second', () => {
+    const when = new Date(2026, 8, 28, 19, 47, 34);
+    assert.equal(saver.makeFilename(when, null, 'tavily'), '09-28:1947.34-tavily.md');
+    const a = saver.atomicWrite(dir, 'first', { when, tag: 'exa' });
+    const b = saver.atomicWrite(dir, 'second', { when, tag: 'exa' });
+    const c = saver.atomicWrite(dir, 'third', { when, tag: 'exa' });
+    assert.deepEqual([a.filename, b.filename, c.filename], ['09-28:1947.34-exa.md', '09-28:1947.34-exa_2.md', '09-28:1947.34-exa_3.md']);
+    assert.equal(fs.readFileSync(a.path, 'utf8'), 'first');
+    assert.equal(fs.readFileSync(c.path, 'utf8'), 'third');
+  });
 });

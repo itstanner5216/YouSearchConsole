@@ -5,18 +5,19 @@ const path = require('path');
 const { log } = require('./logger');
 
 /**
- * Local-time filename: MM-DD:HHMM.SS.md or MM-DD:HHMM.SS-01.md
+ * Local-time filename: MM-DD:HHMM.SS.md, MM-DD:HHMM.SS-01.md, or MM-DD:HHMM.SS-tavily.md
  * @param {Date} [when]
  * @param {number|null} [pageIndex] — 1-based for multi-page Contents
+ * @param {string|null} [tag] — provider id; You.com reports keep the plain name
  */
-function makeFilename(when = new Date(), pageIndex = null) {
+function makeFilename(when = new Date(), pageIndex = null, tag = null) {
   const d = when instanceof Date ? when : new Date(when);
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const HH = String(d.getHours()).padStart(2, '0');
   const MM = String(d.getMinutes()).padStart(2, '0');
   const SS = String(d.getSeconds()).padStart(2, '0');
-  const base = `${mm}-${dd}:${HH}${MM}.${SS}`;
+  const base = `${mm}-${dd}:${HH}${MM}.${SS}` + (tag ? `-${tag}` : '');
   if (pageIndex != null) {
     const n = String(pageIndex).padStart(2, '0');
     return `${base}-${n}.md`;
@@ -30,7 +31,7 @@ function makeFilename(when = new Date(), pageIndex = null) {
  *
  * @param {string} destDir
  * @param {string} content
- * @param {{ filename?: string, pageIndex?: number|null, when?: Date }} [opts]
+ * @param {{ filename?: string, pageIndex?: number|null, tag?: string|null, when?: Date }} [opts]
  * @returns {{ ok: true, path: string, filename: string, bytes: number } | { ok: false, error: string }}
  */
 function atomicWrite(destDir, content, opts = {}) {
@@ -38,9 +39,14 @@ function atomicWrite(destDir, content, opts = {}) {
     return { ok: false, error: 'Output directory is not set' };
   }
   const when = opts.when || new Date();
-  const filename =
+  let filename =
     opts.filename ||
-    makeFilename(when, opts.pageIndex != null ? opts.pageIndex : null);
+    makeFilename(when, opts.pageIndex != null ? opts.pageIndex : null, opts.tag || null);
+  // Several reports can land in the same second; a second one gets _2, _3… instead of replacing the first.
+  if (!opts.filename) {
+    const stem = filename.slice(0, -3);
+    for (let n = 2; fs.existsSync(path.join(destDir, filename)); n++) filename = `${stem}_${n}.md`;
+  }
   const finalPath = path.join(destDir, filename);
   const tmpPath = path.join(
     destDir,
