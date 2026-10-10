@@ -527,30 +527,13 @@ async function saveAgain(requestId) {
 }
 
 // On startup, every job a provider is still working on picks up tracking where it left off.
-/**
- * On startup: polled jobs carry on where they left off. Anything else still marked in flight
- * was cut off by the stop and would otherwise hold its thread busy for good: a report that had
- * already arrived is saved; a stream, or a call the provider never answered, is marked failed.
- */
+// Polled jobs carry on after a restart; stateStore.load() has already settled everything else cut off by the stop.
 function trackInFlight() {
   for (const t of stateStore.getRawState().threads) {
     for (const r of t.requests || []) {
-      if (r.trackingActive && r.jobId) {
-        log('state', 'tracking continues after restart', { threadId: t.id, jobId: r.jobId, operation: 'tracking.restart' });
-        scheduleNextPoll(r.id);
-        continue;
-      }
-      if (!RUNNING.includes(r.status)) continue;
-      if ((r.status === 'RECEIVED' || r.status === 'SAVING') && (r.content != null || (r.contentsPages && r.contentsPages.length))) {
-        inBackground(r.id, saveRequestContent(r.id));
-        continue;
-      }
-      const p = providers.get(r.provider);
-      const name = p ? p.name : r.provider;
-      let message = `The app stopped before ${name}'s answer came in, so this request can't be picked up again.`;
-      if (r.status === 'SUBMITTING') message = `The app stopped before ${name} confirmed it had the request, so it can't be picked up again.`;
-      else if (p && p.kind === 'stream') message = `The app stopped while ${name}'s report was streaming in; a streamed run can't be picked up again.`;
-      fail(r.id, { title: 'Research interrupted', operation: 'tracking.restart', status: null, message });
+      if (!r.trackingActive || !r.jobId) continue;
+      log('state', 'tracking continues after restart', { threadId: t.id, jobId: r.jobId, operation: 'tracking.restart' });
+      scheduleNextPoll(r.id);
     }
   }
 }

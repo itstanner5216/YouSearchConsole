@@ -290,6 +290,9 @@ describe('providers: Tavily stream', () => {
       const out = await tavilyRun(sse([chunk({ content: 'Whole report' })]) + end);
       assert.equal(out.content, 'Whole report');
     }
+    // One event's JSON may span several data: lines; they are one payload.
+    const split = 'event: chat.completion.chunk\ndata: {"choices": [{"delta":\ndata: {"content": "Joined"}}]}\n\nevent: done\n\n';
+    assert.equal((await tavilyRun(split)).content, 'Joined');
   });
 
   it("an error event is Tavily's own message, JSON or not", async () => {
@@ -524,6 +527,9 @@ describe('orchestrator: research across providers', () => {
     assert.ok(orchestrator.timers.has(ex));
     // Keenable answers at once.
     assert.equal(current(kn).status, 'SAVED · VERIFIED');
+    // Keenable was sent last and is done, but Exa still runs: the sidebar shows the thread as busy.
+    const side = () => stateStore.getPublicState().threads.find((x) => x.id === thread.id);
+    assert.deepEqual([side().status, side().statusDot], ['RESEARCHING', 'red']);
     // The thread is busy until every provider is done.
     await assert.rejects(orchestrator.research({ threadId: thread.id, input: 'again', providers: ['keenable'] }), { status: 409 });
 

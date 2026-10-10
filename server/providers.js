@@ -150,9 +150,9 @@ async function openStream(p, url, body, guard) {
 }
 
 /**
- * Yields each SSE event as {event, data}: one per `data:` line, named by the event's `event:`
- * line ('message' when it has none), and one with empty data for an event that is only a name
- * (Tavily's closing `event: done`). Lines are buffered across network chunks, so none is cut in half.
+ * Yields each SSE event as {event, data}: named by its `event:` line ('message' when it has
+ * none), its `data:` lines joined with newlines (empty for an event that is only a name, like
+ * Tavily's closing `event: done`). Lines are buffered across network chunks, so none is cut in half.
  */
 async function* sseEvents(res, guard) {
   const decoder = new TextDecoder();
@@ -160,9 +160,7 @@ async function* sseEvents(res, guard) {
   let event = '';
   let data = [];
   function* dispatch() {
-    const name = event || 'message';
-    if (data.length) for (const d of data) yield { event: name, data: d };
-    else if (event) yield { event: name, data: '' };
+    if (event || data.length) yield { event: event || 'message', data: data.join('\n') };
     event = '';
     data = [];
   }
