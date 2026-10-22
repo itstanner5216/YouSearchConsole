@@ -242,6 +242,25 @@ function streamFailure(p, err, guard, got) {
 
 // ---------- providers ----------
 
+// You.com's real reports ran 7,591+ characters with [[n]] citations; its opening note alone is ~300 and has none.
+const YOU_REPORT = { minChars: 1500, citation: /\[\[\d/ };
+
+/** You.com marks a task complete even when it only produced its opening note and then closed it. */
+function youNoReport(data, content) {
+  const text = content.trim();
+  if (text.length >= YOU_REPORT.minChars || YOU_REPORT.citation.test(text)) return null;
+  const secs = (Date.parse(data.completed_at) - Date.parse(data.created_at)) / 1000;
+  const timing = Number.isFinite(secs) && secs >= 0 ? ` ${Math.round(secs).toLocaleString('en-US')} seconds after it was submitted` : '';
+  const sent = text
+    ? `${text.length.toLocaleString('en-US')} characters with no citations`
+    : 'nothing at all';
+  return (
+    `You.com marked the research complete${timing}, but what it sent is ${sent}, not a report. ` +
+    `You.com has closed the task, so the rest can't be fetched. Sending the prompt again runs it fresh.` +
+    (text ? `\n\nWhat You.com sent:\n${text}` : '')
+  );
+}
+
 const you = {
   id: 'you',
   name: 'You.com',
@@ -261,10 +280,13 @@ const you = {
     const status = String(data.status || '').toLowerCase();
     if (status === 'queued' || status === 'running') return { state: status, raw: data };
     if (status === 'completed') {
+      const content = saver.extractResearchMarkdown(data);
+      const message = youNoReport(data, content);
+      if (message) return { state: 'failed', raw: data, title: 'You.com returned no report', message };
       return {
         state: 'completed',
         raw: data,
-        content: saver.extractResearchMarkdown(data),
+        content,
         sources: data.result?.output?.sources || data.output?.sources || null,
       };
     }
