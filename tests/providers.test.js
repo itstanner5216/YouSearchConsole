@@ -385,6 +385,69 @@ describe('providers: Jina DeepSearch stream', () => {
 
 // ---------- polled providers ----------
 
+describe('providers: You.com completed runs', () => {
+  beforeEach(setup);
+  afterEach(teardown);
+
+  const NOTE =
+    'I’m checking the free plans against the actual review workflow—not just their labels—and separately investigating education and business-verification offers. I’ll distinguish hosted quotas from BYOK options, where review software can be free even though inference and CI usage may cost money.';
+  const completed = (content, extra = {}) => ({
+    task_id: 't',
+    status: 'completed',
+    created_at: '2026-10-21T02:40:08.160781Z',
+    completed_at: '2026-10-21T02:40:44.444285Z',
+    result: { output: { content, content_type: 'text', sources: [] } },
+    ...extra,
+  });
+  const check = async (body) => {
+    key('YDC_API_KEY', 'ydc-test-key-0001');
+    youClient.setFetch(async () => jsonRes(200, body));
+    try {
+      return await p('you').check('t');
+    } finally {
+      youClient.resetFetch();
+    }
+  };
+
+  it('the opening note alone is not a report: it fails with the reason and the note', async () => {
+    assert.equal(NOTE.length, 292);
+    const r = await check(completed(NOTE));
+    assert.equal(r.state, 'failed');
+    assert.equal(r.title, 'You.com returned no report');
+    assert.ok(r.message.includes('36 seconds after it was submitted'));
+    assert.ok(r.message.includes('292 characters with no citations'));
+    assert.ok(r.message.includes("closed the task, so the rest can't be fetched"));
+    assert.ok(r.message.includes('Sending the prompt again runs it fresh'));
+    assert.ok(r.message.includes(NOTE));
+    assert.ok(!/auth|key/i.test(r.title));
+  });
+
+  it('leaves the timing out when the timestamps are missing, and calls empty content nothing', async () => {
+    const r = await check(completed(NOTE, { created_at: undefined, completed_at: undefined }));
+    assert.equal(r.state, 'failed');
+    assert.ok(!/seconds/.test(r.message));
+    const e = await check(completed('  '));
+    assert.equal(e.state, 'failed');
+    assert.ok(e.message.includes('nothing at all'));
+  });
+
+  it('a cut-off citation marker does not make the opening note a report', async () => {
+    const r = await check(completed(`${NOTE} See [[1`));
+    assert.equal(r.state, 'failed');
+  });
+
+  it('a real report is saved as before, long or short with citations', async () => {
+    const long = `# Report\n\n${'A finding without a marker. '.repeat(70)}\n`;
+    assert.ok(long.length >= 1500);
+    const a = await check(completed(long));
+    assert.deepEqual([a.state, a.content], ['completed', long]);
+    const short = `# Report\n\n${'Plan A is free for students [[1]], plan B is not [[2, 3]]. '.repeat(10)}`;
+    assert.ok(short.length < 1500);
+    const b = await check(completed(short));
+    assert.deepEqual([b.state, b.content], ['completed', short]);
+  });
+});
+
 describe('providers: Exa and TinyFish runs', () => {
   beforeEach(setup);
   afterEach(teardown);

@@ -22,7 +22,7 @@
       <div class="rule rule-threads"><span>THREADS</span></div>
       <ul id="thread-list" class="thread-list" aria-label="Recent threads"></ul>
       <div class="sidebar-footer">
-        <button type="button" id="btn-new-thread" class="btn-new" aria-label="New thread" title="New thread"><svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
+        <button type="button" id="btn-new-thread" class="btn-new" aria-label="New thread" title="New thread"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
         <button type="button" id="btn-settings" class="btn btn-block btn-settings">⚙ Settings</button>
       </div>
       <div id="sidebar-resizer" class="resizer resizer-x" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
@@ -73,15 +73,15 @@
             <label for="prompt" class="sr-only">Search query</label>
             <textarea id="prompt" class="prompt" rows="1" placeholder="Search query"></textarea>
             <div class="mode-picker">
-              <button type="button" id="mode-btn" class="mode-btn" aria-haspopup="true" aria-expanded="false" aria-controls="mode-menu" title="Choose mode"><span id="mode-btn-text">Frontier</span><span class="mode-chev" aria-hidden="true">▾</span></button>
-              <div id="mode-menu" class="mode-menu" role="radiogroup" aria-label="Mode" hidden>
+              <button type="button" id="mode-btn" class="mode-btn" aria-haspopup="true" aria-expanded="false" aria-controls="mode-menu" title="Choose effort"><span id="mode-btn-text">Effort</span><span class="mode-chev" aria-hidden="true">▾</span></button>
+              <div id="mode-menu" class="mode-menu" role="radiogroup" aria-label="Effort" hidden>
                 <button type="button" class="mode" data-mode="frontier" role="radio" aria-checked="true"><span class="mode-name">Frontier</span><span class="mode-desc">Deep research · runs in the background · billed on submit</span></button>
                 <button type="button" class="mode" data-mode="exhaustive" role="radio" aria-checked="false"><span class="mode-name">Exhaustive</span><span class="mode-desc">Most thorough · runs in the background · billed on submit</span></button>
                 <button type="button" class="mode mode-contents" data-mode="contents" role="radio" aria-checked="false"><span class="mode-name">Contents</span><span class="mode-desc">Fetches each page as Markdown</span></button>
                 <button type="button" class="mode" data-mode="answers" role="radio" aria-checked="false"><span class="mode-name">Answers</span><span class="mode-desc">Quick synthesized answer · 400 characters max</span></button>
               </div>
             </div>
-            <button type="button" id="btn-submit" class="btn-send" aria-label="Submit" title="Submit (Enter) · new line (Shift+Enter)"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button type="button" id="btn-submit" class="btn-send" aria-label="Submit" title="Submit (Enter) · new line (Shift+Enter)"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           </div>
           <div class="composer-note">
             <span id="composer-helper" class="composer-helper"></span>

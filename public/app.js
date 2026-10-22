@@ -463,8 +463,7 @@ function renderComposer() {
     fitPrompt();
   }
   updateHelper();
-  setText($('#mode-btn-text'), MODE_NAMES[currentMode] || currentMode);
-  // One request at a time per thread: while it runs, the send button turns blue, breathes, and waits.
+  // One request at a time per thread: while it runs, the send button loses its arrow, turns solid red, pulses, and waits.
   const running = threadBusy(t);
   const btn = $('#btn-submit');
   btn.disabled = submitting || running;

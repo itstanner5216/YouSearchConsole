@@ -122,14 +122,14 @@ describe('orchestrator tracking + notify timing', () => {
   it('past the 15 minute failsafe makes one last check: a finished report is still saved', async () => {
     youClient.setFetch(
       mockFetchSequence([
-        { status: 200, body: { task_id: 'task-tracked-1', status: 'completed', result: { output: { content: '# Late', content_type: 'text' } } } },
+        { status: 200, body: { task_id: 'task-tracked-1', status: 'completed', result: { output: { content: '# Late\n\nA finding [[1]].\n', content_type: 'text' } } } },
       ])
     );
     const id = trackedRequest(60 * MIN);
     orchestrator.scheduleNextPoll(id);
     for (let i = 0; i < 50 && current(id).status !== 'SAVED · VERIFIED'; i++) await new Promise((r) => setTimeout(r, 10));
     assert.equal(current(id).status, 'SAVED · VERIFIED');
-    assert.equal(fs.readFileSync(current(id).savedPaths[0].path, 'utf8'), '# Late');
+    assert.equal(fs.readFileSync(current(id).savedPaths[0].path, 'utf8'), '# Late\n\nA finding [[1]].\n');
   });
 
   it('shows a failed job\'s error as text, never [object Object]', async () => {
@@ -147,6 +147,32 @@ describe('orchestrator tracking + notify timing', () => {
     assert.equal(current(b).error.message, '{"code":"E42"}');
   });
 
+  it('a You.com \"completed\" that is only its opening note fails with the reason and saves nothing', async () => {
+    const note = 'I’m checking the free plans against the actual review workflow—not just their labels. I’ll distinguish hosted quotas from BYOK options.';
+    youClient.setFetch(
+      mockFetchSequence([
+        {
+          status: 200,
+          body: {
+            task_id: 'task-tracked-1',
+            status: 'completed',
+            created_at: '2026-10-21T02:40:08.160781Z',
+            completed_at: '2026-10-21T02:40:44.444285Z',
+            result: { output: { content: note, content_type: 'text', sources: [{ url: 'https://example.com', title: 'Ex' }] } },
+          },
+        },
+      ])
+    );
+    const id = trackedRequest(60 * 1000);
+    await orchestrator.doPoll(id);
+    const r = current(id);
+    assert.equal(r.status, 'FAILED');
+    assert.equal(r.error.title, 'You.com returned no report');
+    assert.ok(r.error.message.includes(note) && r.error.message.includes('36 seconds'));
+    assert.ok(!r.content);
+    assert.deepEqual(fs.readdirSync(outDir), []);
+  });
+
   it('picks up tracking for in-flight jobs on startup', () => {
     const id = trackedRequest(2 * 60 * 1000);
     const done = trackedRequest(2 * 60 * 1000);
@@ -158,7 +184,7 @@ describe('orchestrator tracking + notify timing', () => {
   });
 
   it('completes research, saves verified, sets notifyPending after verification', async () => {
-    const md = '# Report\n\nExact bytes ✨\n';
+    const md = '# Report\n\nExact bytes ✨ [[1]]\n';
     youClient.setFetch(
       mockFetchSequence([
         {
