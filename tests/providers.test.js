@@ -431,6 +431,11 @@ describe('providers: You.com completed runs', () => {
     assert.ok(e.message.includes('nothing at all'));
   });
 
+  it('a cut-off citation marker does not make the opening note a report', async () => {
+    const r = await check(completed(`${NOTE} See [[1`));
+    assert.equal(r.state, 'failed');
+  });
+
   it('a real report is saved as before, long or short with citations', async () => {
     const long = `# Report\n\n${'A finding without a marker. '.repeat(70)}\n`;
     assert.ok(long.length >= 1500);

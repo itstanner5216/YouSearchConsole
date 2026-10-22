@@ -243,7 +243,7 @@ function streamFailure(p, err, guard, got) {
 // ---------- providers ----------
 
 // You.com's real reports ran 7,591+ characters with [[n]] citations; its opening note alone is ~300 and has none.
-const YOU_REPORT = { minChars: 1500, citation: /\[\[\d/ };
+const YOU_REPORT = { minChars: 1500, citation: /\[\[\d+(?:, *\d+)*\]\]/ };
 
 /** You.com marks a task complete even when it only produced its opening note and then closed it. */
 function youNoReport(data, content) {
