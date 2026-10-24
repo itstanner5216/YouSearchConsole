@@ -426,12 +426,13 @@ function renderMarkdown(md, opts) {
 }
 
 // You.com research cites its sources as [[1]] or [[1, 2]], numbered from 1 into r.sources: show each group as [1, 2] with linked numbers.
+// A source is a URL string, a {url, title} result, or an Answers citation, which names its URL `source`.
 const CITATION = /\[\[(\d+(?:, *\d+)*)\]\]/g;
 
 function linkCitations(root, sources) {
   const urls = (sources || []).map((s) => {
-    const url = typeof s === 'string' ? s : s && s.url;
-    return typeof url === 'string' && /^https?:\/\//i.test(url) ? { url, title: (s && s.title) || url } : null;
+    const url = typeof s === 'string' ? s : s?.url || s?.source;
+    return typeof url === 'string' && /^https?:\/\//i.test(url) ? { url, title: s?.title || url } : null;
   });
   if (!urls.some(Boolean)) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -443,7 +444,7 @@ function linkCitations(root, sources) {
     const parts = [];
     let last = 0;
     for (const m of t.data.matchAll(CITATION)) {
-      const nums = m[1].split(',').map((n) => parseInt(n, 10));
+      const nums = m[1].split(',').map((n) => Number.parseInt(n, 10));
       if (!nums.every((n) => urls[n - 1])) continue;   // a number without a usable source stays plain text
       const cite = node('span', 'cite', '[');
       nums.forEach((n, i) => {
