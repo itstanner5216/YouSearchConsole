@@ -567,7 +567,7 @@ html, body {
 }
 .prompt::placeholder { color: #4B4B4B; }   /* as faint on the charcoal as #383838 was on #0E0E0E (1.65:1) */
 .prompt:focus { outline: none; }
-.prompt:not(:focus) { mask-image: linear-gradient(#000 calc(100% - 9px), transparent 0); }   /* at rest a multi-line draft shows only its first line; a mask, unlike clip-path, keeps the hidden strip clickable */
+.prompt:not(:focus) { padding-bottom: 0; border-bottom: 9px solid transparent; }   /* at rest a multi-line draft shows only its first line: the bottom 9px becomes border, which clips line 2 yet still takes the click (a mask would also switch the text to grayscale antialiasing) */
 
 /* Mode: quiet text with a chevron; the menu opens upward. */
 .mode-picker { position: relative; flex-shrink: 0; margin-right: 12px; }   /* Effort sits a little left of the send button */
