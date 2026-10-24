@@ -32,10 +32,10 @@ const api = {
 
 const MODE_NAMES = { frontier: 'Frontier', exhaustive: 'Exhaustive', contents: 'Contents', answers: 'Answers' };
 const MODE_PLACEHOLDERS = {
-  frontier: 'Search query',
-  exhaustive: 'Search query',
+  frontier: 'Search  query',
+  exhaustive: 'Search  query',
   contents: 'Paste URLs, one per line',
-  answers: 'Search query',
+  answers: 'Search  query',
 };
 const RUNNING = ['SUBMITTING', 'SUBMITTED', 'RESEARCHING', 'RECEIVING', 'RECEIVED', 'SAVING'];
 const NARROW = window.matchMedia('(max-width: 960px)');
@@ -346,9 +346,9 @@ function createTurn(r) {
   if (query && r.mode === 'contents') {
     el.append(node('div', 'turn-query turn-query-urls', query));
   } else if (query) {
-    // The query is written as markdown, so it reads the way the report does.
+    // The query is written as markdown, so it reads the way the report does; prompts are written a thought per line, so each line break stays.
     const bubble = node('div', 'turn-query');
-    bubble.append(renderMarkdown(query));
+    bubble.append(renderMarkdown(query, { breaks: true }));
     dropBrokenImages(bubble);
     el.append(bubble);
   }
@@ -377,7 +377,9 @@ function fillTurnReport(el, r, isLatest) {
       })
     );
   } else if (r.content) {
-    el.replaceChildren(renderMarkdown(r.content));
+    const report = renderMarkdown(r.content);
+    linkCitations(report, r.sources);
+    el.replaceChildren(report);
   } else {
     // No report (yet). While it runs the send button says so; otherwise one plain line.
     let line = '';
@@ -415,12 +417,51 @@ function dropBrokenImages(root) {
   }
 }
 
-function renderMarkdown(md) {
+function renderMarkdown(md, opts) {
   // Report content comes from external pages and APIs: always sanitize, and hand back nodes, never an HTML string.
   if (typeof marked !== 'undefined' && marked.parse && typeof DOMPurify !== 'undefined') {
-    return DOMPurify.sanitize(marked.parse(md, { async: false }), { RETURN_DOM_FRAGMENT: true });
+    return DOMPurify.sanitize(marked.parse(md, { async: false, ...opts }), { RETURN_DOM_FRAGMENT: true });
   }
   return node('pre', '', md);
+}
+
+// You.com research cites its sources as [[1]] or [[1, 2]], numbered from 1 into r.sources: show each group as [1, 2] with linked numbers.
+// A source is a URL string, a {url, title} result, or an Answers citation, which names its URL `source`.
+const CITATION = /\[\[(\d+(?:, *\d+)*)\]\]/g;
+
+function linkCitations(root, sources) {
+  const urls = (sources || []).map((s) => {
+    const url = typeof s === 'string' ? s : s?.url || s?.source;
+    return typeof url === 'string' && /^https?:\/\//i.test(url) ? { url, title: s?.title || url } : null;
+  });
+  if (!urls.some(Boolean)) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const texts = [];
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (t.data.includes('[[') && !t.parentElement?.closest('a, code, pre')) texts.push(t);
+  }
+  for (const t of texts) {
+    const parts = [];
+    let last = 0;
+    for (const m of t.data.matchAll(CITATION)) {
+      const nums = m[1].split(',').map((n) => Number.parseInt(n, 10));
+      if (!nums.every((n) => urls[n - 1])) continue;   // a number without a usable source stays plain text
+      const cite = node('span', 'cite', '[');
+      nums.forEach((n, i) => {
+        if (i) cite.append(', ');
+        const a = node('a', '', String(n));
+        a.href = urls[n - 1].url;
+        a.title = urls[n - 1].title;
+        a.target = '_blank';   // a source opens beside the console, so the report keeps its place
+        a.rel = 'noopener noreferrer';
+        cite.append(a);
+      });
+      cite.append(']');
+      parts.push(t.data.slice(last, m.index), cite);
+      last = m.index + m[0].length;
+    }
+    if (last) t.replaceWith(...parts, t.data.slice(last));
+  }
 }
 
 /* Composer */
@@ -439,7 +480,7 @@ function fitPrompt() {
   el.style.height = 'auto';
   const max = Math.round(window.innerHeight * 0.4);
   const h = Math.min(el.scrollHeight, max);
-  el.style.height = Math.max(h, 34) + 'px';
+  el.style.height = Math.max(h, 40) + 'px';
   el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
 }
 

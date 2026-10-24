@@ -68,13 +68,14 @@ html, body {
   position: relative;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--divider);
+  border-right: 1px solid #161616;   /* quieter than --divider */
   background: var(--bg);
   padding: 14px;
   gap: 10px;
   min-width: 0;
   overflow: hidden;
   z-index: 20;
+  container-type: inline-size;   /* the title sizes itself to the sidebar's width (cqi) */
 }
 
 .workspace {
@@ -102,13 +103,12 @@ html, body {
 
 /* ── Title block ── */
 .title-block {
-  margin-top: 11px;               /* centers the heading in the sidebar's top band, on the header row's line (y = 39) */
   color: #CC0000;
   font-family: 'Z003', 'URW Chancery L', cursive;
   font-style: italic;
   font-weight: 500;
-  font-size: 28px;
-  line-height: 28px;
+  font-size: min(32px, 17.6cqi);   /* fills the sidebar's top band; narrower sidebars (down to the 200px minimum) scale it so it never truncates */
+  line-height: 32px;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -141,10 +141,10 @@ html, body {
   min-width: 12px;
   border-top: 1px solid var(--red);
 }
-.sidebar > .rule { padding: 7px 0 2px; line-height: 18px; }   /* puts the line at y=78.5, the REPORT line's sub-pixel */
+.sidebar > .rule { margin-top: -10px; padding: 0 0 2px; line-height: 18px; }   /* cancels the sidebar's 10px gap: the line sits at y = 55, well clear of the REPORT line (y = 78.5) */
 .rule-threads { color: var(--text); }
-.rule-threads::before, .rule-threads::after { border-top-color: var(--blue); border-top-width: 2px; }
-.rule-threads > span:first-child::before, .rule-threads > span:first-child::after { color: var(--blue); }
+.rule-threads::before, .rule-threads::after { border-top-color: #3675B4; border-top-width: 2px; }   /* two shades under --blue */
+.rule-threads > span:first-child::before, .rule-threads > span:first-child::after { color: #3675B4; font-size: 15px; }   /* the brackets, 1px larger than the label */
 
 /* ── Buttons ── */
 .btn {
@@ -196,26 +196,26 @@ html, body {
 /* ── Thread list ── */
 .thread-list {
   list-style: none;
-  margin: 0;
-  padding: 0 0 56px;              /* the + covers the list's bottom 46px; the extra 10 is air so the last thread scrolls clear */
+  margin: -10px -14px 0;          /* rows run edge to edge across the sidebar; -10px cancels the sidebar's gap so the first line sits right under THREADS (y = 66), clear of the REPORT lines */
+  padding: 0 0 59px;              /* the + and its black ring cover the list's bottom 49px; the extra 10 is air so the last thread scrolls clear */
   overflow-y: auto;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
 }
 .thread-item {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
-  padding: 10px 10px 10px 12px;
-  border: 1px solid #1c1c1c;
-  border-radius: var(--radius);
+  padding: 10px 25px 10px 27px;   /* the sidebar's 14px padding and the old box's 1px side move inside the row: the dot, text and x stay where they were */
+  border-bottom: 1px solid #1C1C1C;
   cursor: pointer;
   position: relative;
 }
+.thread-item:first-child { border-top: 1px solid #1C1C1C; }   /* with each row's bottom line: one quiet line above, between and below the threads */
 .thread-item:hover { background: var(--surface); }
 .thread-item.selected { background: #101010; }
 .thread-item.selected::before {
@@ -237,7 +237,7 @@ html, body {
 .thread-meta { min-width: 0; }
 .thread-title {
   color: var(--text);
-  font-size: var(--fs-ui);
+  font-size: var(--fs-tiny);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -265,8 +265,8 @@ html, body {
 .sidebar-footer { position: relative; padding-top: 4px; }
 .btn-new {
   position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);       /* footer padding-top (4) + 8 = 12px above Settings */
+  right: 2px;
+  bottom: calc(100% + 14px);      /* footer padding-top (4) + 14 = 18px above Settings */
   z-index: 1;
   width: 40px; height: 40px;
   display: inline-flex;
@@ -275,16 +275,16 @@ html, body {
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: linear-gradient(180deg, #356BA6 0%, #234B78 100%);
+  background: linear-gradient(180deg, #205C96 0%, #0E3D69 100%);
   color: var(--text);
-  /* sheen on top, shade underneath, then a tight and a wide drop shadow that lift it off thread items scrolling underneath */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 2px 4px rgba(0, 0, 0, .8), 0 10px 24px rgba(0, 0, 0, .8), 0 0 0 1px #0b1522;
+  /* sheen on top, shade underneath, a 5px pure-black ring that blacks out whatever scrolls right behind it, then a tight and a wide drop shadow */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 0 0 5px #000, 0 2px 4px rgba(0, 0, 0, .8), 0 10px 24px rgba(0, 0, 0, .8);
   cursor: pointer;
   transition: background var(--trans), box-shadow var(--trans), transform var(--trans);
 }
 .btn-new:hover {
-  background: linear-gradient(180deg, #3B74B2 0%, #285488 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 3px 6px rgba(0, 0, 0, .8), 0 14px 28px rgba(0, 0, 0, .8), 0 0 0 1px #0b1522;
+  background: linear-gradient(180deg, #2665A2 0%, #124679 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .16), inset 0 -1px 0 rgba(0, 0, 0, .35), 0 0 0 5px #000, 0 3px 6px rgba(0, 0, 0, .8), 0 14px 28px rgba(0, 0, 0, .8);
   transform: translateY(-1px);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -386,9 +386,9 @@ html, body {
 .err-actions:not(:has(.btn:not(.hidden))) { display: none; }
 
 /* ── Report rule + actions ── */
-.rule-report { padding: 3px 16px 4px; gap: 6px; flex-shrink: 0; border-bottom: 1px solid var(--divider); font-size: var(--fs-input); }
+.rule-report { padding: 3px 16px 4px; gap: 6px; flex-shrink: 0; font-size: var(--fs-input); }
 .rule-report::after { order: 1; }
-.rule-report::before, .rule-report::after { border-top-width: 3px; }
+.rule-report::before, .rule-report::after { height: 7px; margin-top: -6px; border-top: 3px solid var(--divider); border-bottom: 1px solid var(--red); }   /* a 3px gray line rides 3px above the 1px red line; the -6px margin keeps the red line on the label's center line */
 .rule-report .toolbar-actions { order: 2; }
 .toolbar-actions .btn-sm { padding: 4px 14px; font-size: var(--fs-input); line-height: 22px; }
 .toolbar-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; font-weight: 500; text-transform: none; }
@@ -406,7 +406,7 @@ html, body {
   padding: 8px 0 32px;
 }
 /* The report column and the composer share one width and one center line. */
-.app { --col-w: 56rem; }
+.app { --col-w: 936px; }   /* the original console's report column (72rem at its 13px root) */
 .app.reader-wide { --col-w: 84rem; }
 .reader-body { max-width: var(--col-w); font-size: var(--fs-read); }
 
@@ -423,6 +423,7 @@ html, body {
 .reader-body h1 { font-size: 1.45em; }
 .reader-body h2 { font-size: 1.25em; }
 .reader-body h3 { font-size: 1.1em; }
+.reader-body h5, .reader-body h6 { font-size: 1em; }   /* the browser's 0.83em / 0.67em would fall under 12px on the report's 13px base */
 .reader-body p, .reader-body li {
   font-size: 1em;
   line-height: 1.6;
@@ -445,7 +446,7 @@ html, body {
   font-family: var(--font-mono);
   font-size: var(--fs-ui);
 }
-.reader-body code { font-family: var(--font-mono); font-size: 0.92em; }
+.reader-body code { font-family: var(--font-mono); font-size: max(12px, 0.92em); }   /* a step under its text, never under 12px (a heading on the report's 13px base would give 11.96px) */
 .reader-body :not(pre) > code { background: var(--surface-2); padding: 1px 4px; border-radius: 2px; }
 .reader-body table {
   border-collapse: collapse;
@@ -473,23 +474,31 @@ html, body {
   max-width: 90%;                 /* slightly narrower than the report; flush with the column's right edge */
   margin: 0.4em 0 28px auto;
   padding: 14px 18px;
-  background: #121212;
+  background: #2A2A2A;          /* charcoal */
   border: 2px solid #1C1C1C;
   border-radius: 6px;             /* same corner as the composer */
   color: var(--label);            /* a step dimmer than the report */
-  font-size: var(--fs-input);     /* 16px; the report is 17 */
+  font-size: 12px;                /* a step under the report's 13px base, so its headings come out a point or two smaller */
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 .turn-query > :first-child { margin-top: 0; }
 .turn-query > :last-child { margin-bottom: 0; }
-.turn-query pre { background: var(--bg); font-size: var(--fs-small); }   /* the report's code blocks are a shade off the canvas; inside the bubble keep that contrast */
+.turn-query pre { background: var(--bg); font-size: 12px; }   /* the report's code blocks are a shade off the canvas; inside the bubble keep that contrast */
+.turn-query p, .turn-query li { font-size: var(--fs-small); }   /* 14px, a point under the report's 15 */
 .turn-query p, .turn-query li, .turn-query td { color: var(--label); }
 .turn-query h1, .turn-query h2, .turn-query h3, .turn-query h4, .turn-query strong { color: var(--subtle); }
 .turn-query h1, .turn-query th { border-bottom-color: var(--blue); }   /* bubble only: the report's header underlines stay red */
-.turn-query th, .turn-query td { font-size: var(--fs-ui); }
-.turn-query-urls { white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--fs-ui); color: var(--link); }
+.turn-query th, .turn-query td { font-size: var(--fs-tiny); }   /* 13px; the report's tables are 14 */
+.turn-query-urls { white-space: pre-wrap; font-family: var(--font-mono); font-size: var(--fs-small); color: var(--link); }   /* a point under the report's 15px prose, like the query card */
 .turn-report > :first-child { margin-top: 0; }
+/* The report keeps the original console's type: a 13px base that headings scale from, 15px prose, 14px tables, 13px code. */
+.turn-report { font-size: var(--fs-tiny); }
+.turn-report p, .turn-report li { font-size: var(--fs-ui); }
+.turn-report th, .turn-report td { font-size: var(--fs-small); }
+.turn-report pre { font-size: var(--fs-tiny); }
+.turn-report pre code { font-size: 12px; }
+.reader-body .cite { color: var(--link); white-space: nowrap; }   /* a [1, 2] citation group: link-blue brackets, never split across lines */
 .reader-body .turn-note { font-family: var(--font-mono); font-size: var(--fs-ui); color: var(--muted); }
 .reader-body .turn-note-error { color: var(--error-text); }
 
@@ -526,7 +535,7 @@ html, body {
 .composer {
   max-width: var(--col-w);
   margin: 0 auto;
-  background: #0E0E0E;
+  background: #2A2A2A;          /* charcoal, same as the query card */
   border: 1px solid #242424;
   border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
@@ -537,7 +546,7 @@ html, body {
   display: flex;
   align-items: flex-end;     /* controls stay on the last line while the query grows */
   gap: 10px;
-  padding: 13px 13px 13px 0;   /* 34px controls + 26px air + border = a 62px surface at rest */
+  padding: 12px 17px 12px 0;   /* 40px controls + 24px air + border = a 66px surface at rest; the send button sits one space further in than the old 13px */
 }
 .prompt {
   display: block;
@@ -549,24 +558,25 @@ html, body {
   font-family: var(--font-ui);
   font-size: var(--fs-input);
   line-height: 22px;
-  padding: 6px 8px 6px 20px;
+  padding: 9px 8px 9px 57px;   /* the query starts 10 spaces (37px) further in than the old 20px */
   resize: none;
-  height: 34px;                /* one line at rest; JS grows it while typing */
+  height: 40px;                /* one line at rest; JS grows it while typing */
   max-height: 40vh;
   overflow-y: hidden;
   transition: height 120ms ease;
 }
-.prompt::placeholder { color: #383838; }
+.prompt::placeholder { color: #4B4B4B; }   /* as faint on the charcoal as #383838 was on #0E0E0E (1.65:1) */
 .prompt:focus { outline: none; }
+.prompt:not(:focus) { padding-bottom: 0; border-bottom: 9px solid transparent; }   /* at rest a multi-line draft shows only its first line: the bottom 9px becomes border, which clips line 2 yet still takes the click (a mask would also switch the text to grayscale antialiasing) */
 
 /* Mode: quiet text with a chevron; the menu opens upward. */
-.mode-picker { position: relative; flex-shrink: 0; }
+.mode-picker { position: relative; flex-shrink: 0; margin-right: 12px; }   /* Effort sits a little left of the send button */
 .mode-btn {
   display: inline-flex; align-items: center; gap: 5px;
-  height: 34px; padding: 0 4px;
+  height: 40px; padding: 0 4px;
   background: transparent; border: none; border-radius: var(--radius);
   font-family: var(--font-ui); font-size: var(--fs-ui); font-weight: 500;
-  color: #383838; cursor: pointer;
+  color: #4B4B4B; cursor: pointer;
   transition: color var(--trans);
 }
 .mode-btn:hover, .mode-btn[aria-expanded="true"] { color: var(--text); }
@@ -603,11 +613,12 @@ html, body {
 .btn-send {
   flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; padding: 0;
+  width: 40px; height: 40px; padding: 0;
   background: #B00000; color: #fff;
   border: none; border-radius: 50%;
   cursor: pointer; transition: background 400ms ease, opacity var(--trans);
 }
+.btn-send svg { width: 18px; height: 18px; }
 .btn-send:hover:not(:disabled) { background: #C00000; }
 .btn-send:focus-visible { outline: 1px solid #fff; outline-offset: 2px; }
 .btn-send:disabled { opacity: 0.5; cursor: default; }
@@ -625,7 +636,7 @@ html, body {
 }
 
 /* One quiet line under the query, only when there is something to say. */
-.composer-note { display: flex; gap: 12px; padding: 0 20px 10px; margin-top: -4px; font-size: var(--fs-small); }
+.composer-note { display: flex; gap: 12px; padding: 0 20px 10px 57px; margin-top: -4px; font-size: var(--fs-small); }
 .composer-note:not(:has(:not(:empty))) { display: none; }
 .composer-helper { font-family: var(--font-mono); color: var(--muted); white-space: nowrap; }
 .composer-error { color: var(--error-text); }
@@ -645,7 +656,6 @@ html, body {
   align-items: center;
 }
 .log-toggle .rule-inline { flex: 1; }
-.log-toggle .rule-inline::before, .log-toggle .rule-inline::after { border-top-width: 5px; }
 .log-toggle-btn {
   display: inline-flex; gap: 8px; align-items: center; flex-shrink: 0;
   border: 1px solid var(--divider); border-radius: var(--radius);
